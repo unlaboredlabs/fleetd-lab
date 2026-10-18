@@ -1,0 +1,1 @@
+fleetd's merge train is the component that merges pull requests in this repo. After a pull request has passed its tier reviews, the train rebases it onto the current base branch, waits for CI to pass on the rebased commit, and then merges it. Writers never merge: a task branch is only ever pushed and opened as a pull request, and the train is the one that lands it.
