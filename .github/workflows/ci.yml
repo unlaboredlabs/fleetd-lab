@@ -2,8 +2,9 @@ name: ci
 
 on:
   pull_request:
+    branches-ignore: ["noci/**"]
   push:
-    branches: [main]
+    branches: [main, "slot/*/main"]
 
 permissions:
   contents: read
