@@ -1,0 +1,26 @@
+name: CI
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: ["bench/**"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/setup@a0881977cd8ea73b1ed212236c99ca10dcc80cf4 # v3.1.1
+        with:
+          runtime: node@24
+          cache: true
+      - name: install
+        run: pnpm install --frozen-lockfile
+      - name: build packages
+        run: pnpm build
+      - name: biome
+        run: pnpm exec biome ci .
+      - name: run tests
+        run: pnpm exec vitest run --dir tests

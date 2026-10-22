@@ -1,0 +1,13 @@
+{
+  "name": "sentry",
+  "private": true,
+  "type": "module",
+  "module": "index.js",
+  "dependencies": {
+    "@sentry/node": "^9.12.0",
+    "@tinyhttp/app": "workspace:*"
+  },
+  "scripts": {
+    "start": "node --import ./instrument.js index.js"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "name": "@tinyhttp/jsonp",
+  "version": "2.1.29",
+  "type": "module",
+  "description": "JSONP response middleware",
+  "homepage": "https://tinyhttp.v1rtl.site",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tinyhttp/tinyhttp.git",
+    "directory": "packages/etag"
+  },
+  "types": "./dist/index.d.ts",
+  "exports": "./dist/index.js",
+  "keywords": [
+    "tinyhttp",
+    "node.js",
+    "web framework",
+    "web",
+    "backend",
+    "etag"
+  ],
+  "engines": {
+    "node": ">=14.13.1"
+  },
+  "author": "v1rtl",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@tinyhttp/app": "workspace:*"
+  },
+  "files": [
+    "dist"
+  ]
+}

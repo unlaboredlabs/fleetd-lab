@@ -1,0 +1,14 @@
+{
+  "name": "couchdb",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@tinyhttp/app": "workspace:*",
+    "@tinyhttp/dotenv": "workspace:*",
+    "milliparsec": "^5.0.2",
+    "nano": "10.1.4"
+  },
+  "scripts": {
+    "start": "node index.js"
+  }
+}

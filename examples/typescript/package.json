@@ -1,0 +1,14 @@
+{
+  "name": "typescript",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsm index.ts"
+  },
+  "dependencies": {
+    "@tinyhttp/app": "workspace:*"
+  },
+  "devDependencies": {
+    "tsm": "^2.3.0"
+  }
+}

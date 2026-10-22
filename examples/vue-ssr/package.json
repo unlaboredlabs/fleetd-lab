@@ -1,0 +1,13 @@
+{
+  "name": "vue-ssr",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@tinyhttp/app": "workspace:*",
+    "sirv": "^3.0.1",
+    "vue": "^3.5.41"
+  },
+  "scripts": {
+    "start": "node index.js"
+  }
+}

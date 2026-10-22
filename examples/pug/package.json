@@ -1,0 +1,15 @@
+{
+  "name": "pug",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@tinyhttp/app": "workspace:*",
+    "pug": "^3.0.3"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "devDependencies": {
+    "@types/pug": "^2.0.10"
+  }
+}

@@ -1,0 +1,175 @@
+import fs from 'node:fs'
+import path from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
+import * as dotenv from '../../packages/dotenv/src'
+
+const __dirname = import.meta.dirname
+
+const envPath = path.join(__dirname, '../fixtures/.env')
+
+const envFile = fs.readFileSync(envPath, { encoding: 'utf8' })
+
+const parsed = dotenv.parse(envFile)
+
+const mockParseResponse = { test: 'foo' }
+
+const expectedPayload = { SERVER: 'localhost', PASSWORD: 'password', DB: 'tests' }
+
+describe('Dotenv parsing', () => {
+  it('sets basic environment variable', () => {
+    expect(parsed.BASIC).toBe('basic')
+  })
+  it('reads after a skipped line', () => {
+    expect(parsed.AFTER_LINE).toBe('after_line')
+  })
+  it('defaults empty values to empty string', () => {
+    expect(parsed.EMPTY).toBe('')
+  })
+  it('escapes single quoted values', () => {
+    expect(parsed.SINGLE_QUOTES).toBe('single_quotes')
+  })
+  it('respects surrounding spaces in single quotes', () => {
+    expect(parsed.SINGLE_QUOTES_SPACED).toBe('    single quotes    ')
+  })
+  it('escapes double quoted values', () => {
+    expect(parsed.DOUBLE_QUOTES).toBe('double_quotes')
+  })
+  it('respects surrounding spaces in double quotes', () => {
+    expect(parsed.DOUBLE_QUOTES_SPACED).toBe('    double quotes    ')
+  })
+  it('expands newlines but only if double quoted', () => {
+    expect(parsed.EXPAND_NEWLINES).toBe('expand\nnew\nlines')
+  })
+  it('expands newlines but only if double quoted', () => {
+    expect(parsed.DONT_EXPAND_UNQUOTED).toBe('dontexpand\\nnewlines')
+  })
+  it('should parse a buffer into an object', () => {
+    const payload = dotenv.parse(Buffer.from('BUFFER=true'))
+    expect(payload.BUFFER).toBe('true')
+  })
+  it('can parse (\\r) line endings', () => {
+    const payload = dotenv.parse(Buffer.from('SERVER=localhost\rPASSWORD=password\rDB=tests\r'))
+
+    expect(payload).toEqual(expectedPayload)
+  })
+  it('can parse (\\n) line endings', () => {
+    const payload = dotenv.parse(Buffer.from('SERVER=localhost\nPASSWORD=password\nDB=tests\n'))
+
+    expect(payload).toEqual(expectedPayload)
+  })
+  it('can parse (\\r\\n) line endings', () => {
+    const payload = dotenv.parse(Buffer.from('SERVER=localhost\r\nPASSWORD=password\r\nDB=tests\r\n'))
+
+    expect(payload).toEqual(expectedPayload)
+  })
+  it('ignores lines without a key=value pair', () => {
+    const payload = dotenv.parse(Buffer.from('what is this\nKEY=value'))
+    expect(payload).toEqual({ KEY: 'value' })
+  })
+  it('strips inline comments on unquoted values', () => {
+    const payload = dotenv.parse(Buffer.from('FOO=bar # inline comment'))
+    expect(payload.FOO).toBe('bar')
+  })
+  it('supports `export` prefix', () => {
+    const payload = dotenv.parse(Buffer.from('export FOO=bar'))
+    expect(payload.FOO).toBe('bar')
+  })
+  it('supports backtick-quoted values', () => {
+    const payload = dotenv.parse(Buffer.from('FOO=`back"tick\'s`'))
+    expect(payload.FOO).toBe(`back"tick's`)
+  })
+  it('does not pollute Object.prototype via __proto__ key', () => {
+    const payload = dotenv.parse(Buffer.from('__proto__={"polluted":"yes"}\nFOO=bar'))
+    expect(payload.FOO).toBe('bar')
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined()
+  })
+})
+
+describe('Dotenv config', () => {
+  afterEach(() => {
+    process.env = {}
+  })
+  describe('options', () => {
+    it('takes path as option', () => {
+      const { parsed } = dotenv.config({ path: envPath })
+
+      expect(parsed?.BASIC).toBe('basic')
+    })
+    it('takes encoding as option', () => {
+      const readFileSync = fs.readFileSync
+      const encoding = 'latin1'
+
+      // @ts-expect-error overriding globals
+      fs.readFileSync = (
+        _path: Parameters<typeof fs.readFileSync>[0],
+        options: Parameters<typeof fs.readFileSync>[1]
+      ) => {
+        expect(typeof options !== 'string' && options?.encoding).toBe(encoding)
+      }
+
+      dotenv.config({ encoding })
+
+      fs.readFileSync = readFileSync
+    })
+  })
+
+  it('reads path with encoding, parsing output to process.env', () => {
+    const { parsed } = dotenv.config({ path: envPath })
+
+    expect(parsed?.test).toEqual(mockParseResponse.test)
+  })
+
+  it('does not write over keys already in process.env', () => {
+    const existing = 'bar'
+    process.env.test = existing
+    const env = dotenv.config({ path: envPath })
+
+    expect(env.parsed?.test).toBe(mockParseResponse.test)
+    expect(process.env.test).toBe(existing)
+  })
+
+  it('does not write over keys already in process.env if the key has a falsy value', () => {
+    const existing = ''
+    process.env.test = existing
+    const env = dotenv.config({ path: envPath, debug: true })
+
+    expect(env.parsed?.test).toBe(mockParseResponse.test)
+  })
+
+  it('overrides existing process.env keys when override is true', () => {
+    process.env.test = 'bar'
+    dotenv.config({ path: envPath, override: true })
+    expect(process.env.test).toBe(mockParseResponse.test)
+  })
+
+  it('writes parsed values to a custom processEnv when provided', () => {
+    const target: NodeJS.ProcessEnv = {}
+    dotenv.config({ path: envPath, processEnv: target })
+    expect(target.test).toBe(mockParseResponse.test)
+    expect(process.env.test).toBeUndefined()
+  })
+
+  it('logs the "WAS overwritten" debug message when override is true', () => {
+    process.env.test = 'bar'
+    const log = console.log
+    const messages: string[] = []
+    console.log = (x: unknown) => {
+      messages.push(String(x))
+    }
+    dotenv.config({ path: envPath, debug: true, override: true })
+    console.log = log
+    expect(messages.some((m) => m.includes('"test" is already defined') && m.includes('WAS overwritten'))).toBe(true)
+  })
+
+  it('logs the failure reason when debug is true and the file cannot be read', () => {
+    const log = console.log
+    const messages: string[] = []
+    console.log = (x: unknown) => {
+      messages.push(String(x))
+    }
+    const env = dotenv.config({ path: path.join(__dirname, '../fixtures/.env.does-not-exist'), debug: true })
+    console.log = log
+    expect(env.error).toBeInstanceOf(Error)
+    expect(messages.some((m) => m.startsWith('[dotenv][DEBUG] failed to load'))).toBe(true)
+  })
+})

@@ -1,0 +1,906 @@
+import { Agent } from 'node:http'
+import { makeFetch } from 'supertest-fetch'
+import { afterEach, assert, describe, expect, it, vi } from 'vitest'
+import { getHost, getIP, getProtocol, type Request } from '../../packages/app/src'
+import { App } from '../../packages/app/src/app'
+import * as req from '../../packages/req/src'
+import { InitAppAndTest } from '../../test_helpers/initAppAndTest'
+
+vi.mock<typeof req>(import('../../packages/req/src'), async (importOriginal) => {
+  const module = await importOriginal()
+
+  return {
+    ...module,
+    getRequestHeader: vi.fn(module.getRequestHeader)
+  } satisfies typeof req
+})
+
+describe('Request properties', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('should have default HTTP Request properties', async () => {
+    const { fetch } = InitAppAndTest((req, res) => {
+      res.status(200).json({
+        url: req.url,
+        headersSent: res.headersSent
+      })
+    })
+
+    await fetch('/').expect(200, { url: '/', headersSent: false })
+  })
+
+  describe('URL extensions', () => {
+    it('req.query is being parsed properly', async () => {
+      const { fetch } = InitAppAndTest((req, res) => void res.send(req.query))
+
+      await fetch('/?param1=val1&param2=val2').expect(200, {
+        param1: 'val1',
+        param2: 'val2'
+      })
+    })
+    it('req.params is being parsed properly', async () => {
+      const { fetch } = InitAppAndTest((req, res) => void res.send(req.params), '/:param1/:param2')
+
+      await fetch('/val1/val2').expect(200, {
+        param1: 'val1',
+        param2: 'val2'
+      })
+    })
+    it('req.url does not include the mount path', async () => {
+      const app = new App()
+
+      app.use('/abc', (req, res) => res.send(req.url))
+
+      const server = app.listen()
+
+      const fetch = makeFetch(server)
+
+      await fetch('/abc/def').expect(200, '/def')
+    })
+    it('should set the correct req.url on routes even in a subapp', async () => {
+      const echo = (req, res) => res.send({ url: req.url, params: req.params })
+      const makeApp = () => new App().get('/a1/b/*', echo).get('/a2/b/:pat', echo)
+
+      const app = makeApp()
+      app.use('/s/:pat1/:pat2', makeApp())
+      const fetch = makeFetch(app.listen())
+
+      await fetch('/a1/b/c').expect(200, {
+        url: '/a1/b/c',
+        params: { wild: 'c' }
+      })
+
+      await fetch('/a2/b/c').expect(200, {
+        url: '/a2/b/c',
+        params: { pat: 'c' }
+      })
+
+      await fetch('/s/t/u/a1/b/c').expect(200, {
+        url: '/a1/b/c',
+        params: { pat1: 't', pat2: 'u', wild: 'c' }
+      })
+
+      await fetch('/s/t/u/a2/b/c').expect(200, {
+        url: '/a2/b/c',
+        params: { pat1: 't', pat2: 'u', pat: 'c' }
+      })
+    })
+    it('should set the correct req.url on middlewares even in a subapp', async () => {
+      const echo = (req, res) => res.send({ url: req.url, params: req.params })
+      const mw = (req, _res, next) => {
+        req.urls ||= []
+        req.urls.push(req.url)
+        next()
+      }
+      const makeApp = () =>
+        new App<Request & { urls: string[] }>()
+          .get('/', echo)
+          .use('/a1/b', echo)
+          .use('/a2/b', mw, mw, mw, (req, res) => res.send({ urls: req.urls, params: req.params }))
+          .use('/a3/:pat1/:pat2', echo)
+          .use('/a4/:pat1/*', echo)
+
+      const app = makeApp()
+      app.use('/s/:pat', makeApp())
+      const fetch = makeFetch(app.listen())
+
+      await fetch('/a1/b/c').expect(200, {
+        url: '/c',
+        params: {}
+      })
+
+      await fetch('/a2/b/c').expect(200, {
+        urls: ['/c', '/c', '/c'],
+        params: {}
+      })
+
+      await fetch('/a3/b/c/d').expect(200, {
+        url: '/d',
+        params: { pat1: 'b', pat2: 'c' }
+      })
+
+      await fetch('/a4/b/c/d').expect(200, {
+        url: '/',
+        params: { pat1: 'b', wild: 'c/d' }
+      })
+
+      await fetch('/s/t/a1/b/c').expect(200, {
+        url: '/c',
+        params: { pat: 't' }
+      })
+
+      await fetch('/s/t/a2/b/c').expect(200, {
+        urls: ['/c', '/c', '/c'],
+        params: { pat: 't' }
+      })
+
+      await fetch('/s/t/a3/b/c/d').expect(200, {
+        url: '/d',
+        params: { pat: 't', pat1: 'b', pat2: 'c' }
+      })
+
+      await fetch('/s/t/a4/b/c/d').expect(200, {
+        url: '/',
+        params: { pat: 't', pat1: 'b', wild: 'c/d' }
+      })
+    })
+    it('should set the correct req.url on a subapp mounted on a wildcard route, for both route and mw', async () => {
+      const echo = (req, res) => res.send({ url: req.url, params: req.params })
+      // Only possible route on subapps below * is / since * is greedy
+      const subAppRoute = new App().get('/', echo)
+      const subAppMw = new App().use('/', echo)
+      const app = new App().use('/s1/*', subAppRoute).use('/s2/*', subAppMw)
+      const fetch = makeFetch(app.listen())
+      await fetch('/s1/a/b/c/d').expect(200, {
+        url: '/',
+        params: { wild: 'a/b/c/d' }
+      })
+      await fetch('/s2/a/b/c/d').expect(200, {
+        url: '/',
+        params: { wild: 'a/b/c/d' }
+      })
+    })
+    it('should set the correct req.url on a subapp mounted on a path with an encoded param', async () => {
+      const subApp = new App()
+      subApp.use((_req, _res, next) => next())
+      subApp.get('/admin/users', (_, res) => res.send('admin users'))
+      subApp.get('/users', (req, res) => res.send({ url: req.url, params: req.params }))
+      const app = new App().use('/:tenant', subApp)
+      const fetch = makeFetch(app.listen())
+      await fetch('/%C3%A9admin/users').expect(200, {
+        url: '/users',
+        params: { tenant: 'éadmin' }
+      })
+    })
+    it('should set the correct req.url and req.baseUrl on a mw mounted on a path with encoded params', async () => {
+      const echo = (req, res) => res.send({ url: req.url, baseUrl: req.baseUrl, params: req.params })
+      const app = new App().use('/p/:name', echo).use('/w/*', echo)
+      const fetch = makeFetch(app.listen())
+      await fetch('/p/a%20b/c').expect(200, {
+        url: '/c',
+        baseUrl: '/p/a%20b',
+        params: { name: 'a b' }
+      })
+      await fetch('/w/a%2Fb').expect(200, {
+        url: '/',
+        baseUrl: '/w/a%2Fb',
+        params: { wild: 'a/b' }
+      })
+    })
+    it('should rewrite req.url, follow the next route and set correct req.url in response', async () => {
+      const rewrite = (req, _, next) => {
+        req.url = '/a/b'
+        next()
+      }
+      const echo = (req, res) => res.send({ url: req.url })
+      const app = new App().use('/', rewrite).use('/a', echo)
+      const fetch = makeFetch(app.listen())
+      await fetch('/').expect(200, {
+        url: '/b'
+      })
+    })
+    it('should rewrite req.url and return 404 if route not found', async () => {
+      const rewrite = (req, _, next) => {
+        req.url = '/b'
+        next()
+      }
+      const app = new App().use('/a', rewrite)
+      const fetch = makeFetch(app.listen())
+      await fetch('/a').expect(404, 'Not Found')
+    })
+    it('should rewrite req.url in a middleware mounted on a path and follow the next route', async () => {
+      const rewrite = (req, _, next) => {
+        req.url = '/b'
+        next()
+      }
+      const echo = (req, res) => res.send({ url: req.url })
+      const app = new App().use('/a', rewrite).get('/b', echo)
+      const fetch = makeFetch(app.listen())
+      await fetch('/a').expect(200, {
+        url: '/b'
+      })
+    })
+    it('should run the middleware registered after the one that rewrites req.url', async () => {
+      const app = new App()
+      app.use((req, _, next) => {
+        if (req.url.startsWith('/en/')) req.url = req.url.slice(3)
+        next()
+      })
+      app.use((req, res, next) => (req.headers.authorization ? next() : res.status(401).send('login required')))
+      app.get('/dashboard', (_, res) => res.send('dashboard'))
+      const fetch = makeFetch(app.listen())
+      await fetch('/dashboard').expect(401, 'login required')
+      await fetch('/en/dashboard').expect(401, 'login required')
+      await fetch('/en/dashboard', { headers: { authorization: 'yes' } }).expect(200, 'dashboard')
+    })
+    it('should run the middleware registered after a middleware mounted on a path that changes req.url', async () => {
+      const app = new App()
+      app.use('/public', (req, _, next) => {
+        req.url = req.url.replace(/\?.*$/, '')
+        next()
+      })
+      app.use((_, res) => res.status(401).send('login required'))
+      app.get('/dashboard', (_, res) => res.send('dashboard'))
+      const fetch = makeFetch(app.listen())
+      await fetch('/public/dashboard').expect(401, 'login required')
+      await fetch('/public/dashboard?x=1').expect(401, 'login required')
+    })
+    it('should run the middleware queued before req.url was rewritten only once', async () => {
+      const app = new App()
+      let calls = 0
+      app.use((req, _, next) => {
+        req.url = '/b'
+        next()
+      })
+      app.use((_req, _res, next) => {
+        calls++
+        next()
+      })
+      app.get('/b', (req, res) => res.send(req.url))
+      const fetch = makeFetch(app.listen())
+      await fetch('/a').expect(200, '/b')
+      expect(calls).toBe(1)
+    })
+    it('should reset params when middleware chain finds new matches after rewrite', async () => {
+      // This tests the branch where idx !== 0 and new matched routes are found
+      // In this case, params should be reset to avoid param pollution
+      const app = new App()
+
+      app.get('/:initial', (req, _, next) => {
+        // Capture initial param, then rewrite URL to match a different route
+        ;(req as Request & { initialParam: string }).initialParam = req.params.initial
+        req.url = '/new/target'
+        next()
+      })
+
+      app.get('/new/:newParam', (req, res) => {
+        res.json({
+          initialParam: (req as Request & { initialParam: string }).initialParam,
+          newParam: req.params.newParam,
+          // After reset, the old :initial param should not be present
+          hasInitialInParams: 'initial' in req.params
+        })
+      })
+
+      const fetch = makeFetch(app.listen())
+      await fetch('/first').expect(200, {
+        initialParam: 'first',
+        newParam: 'target',
+        hasInitialInParams: false
+      })
+    })
+    it('should set the correct req.url on routes after req.url was rewritten', async () => {
+      const echo = (req, res) => res.send({ url: req.url, params: req.params })
+      const rewrite = (req, _, next) => {
+        const url: string = req.url
+        req.url = url.substring(Array.from(url.matchAll(/\//g))[1]?.index || 0)
+        next()
+      }
+      const makeApp = () =>
+        new App().get('/a/b/*', rewrite).get('/a/c/*', rewrite).get('/b/:pat', echo).get('/c/*', echo)
+
+      const app = makeApp()
+      const fetch = makeFetch(app.listen())
+
+      await fetch('/a/b/c').expect(200, {
+        url: '/b/c',
+        params: { pat: 'c' }
+      })
+
+      await fetch('/a/c/d').expect(200, {
+        url: '/c/d',
+        params: { wild: 'd' }
+      })
+    })
+  })
+
+  describe('Network extensions', () => {
+    const ipHandler = (req, res) => {
+      res.json({
+        ip: req.ip,
+        ips: req.ips
+      })
+    }
+    const options = {
+      settings: {
+        networkExtensions: true
+      }
+    }
+    it('IPv4 req.ip & req.ips is being parsed properly', async () => {
+      const { fetch } = InitAppAndTest(ipHandler, '/', 'GET', options)
+
+      const agent = new Agent({ family: 4 }) // ensure IPv4 only
+      const response = await fetch('/', { agent }).expectStatus(200)
+      const body = await response.json()
+
+      // Node.js v24+ may connect via IPv6 even with family: 4, so accept both
+      if (body.ip === '::1') {
+        expect(body).toEqual({ ip: '::1', ips: ['::1'] })
+      } else {
+        expect(body).toEqual({ ip: '127.0.0.1', ips: ['::ffff:127.0.0.1'] })
+      }
+    })
+    if (process.env.GITHUB_ACTION) {
+      // skip ipv6 tests only for github ci/cd
+      it('IPv6 req.ip & req.ips is being parsed properly', async () => {
+        const { fetch } = InitAppAndTest(ipHandler, '/', 'GET', options)
+
+        const agent = new Agent({ family: 6 }) // ensure IPv6 only
+        await fetch('/', { agent }).expect(200, {
+          ip: '::1',
+          ips: ['::1']
+        })
+      })
+    }
+    it('req.ip keeps IPv6 addresses whole and strips the prefix of IPv4-mapped ones', () => {
+      const reqFrom = (remoteAddress: string, xff?: string) =>
+        ({ headers: xff ? { 'x-forwarded-for': xff } : {}, socket: { remoteAddress } }) as unknown as Request
+
+      expect(getIP(reqFrom('2001:db8:85a3::8a2e:370:7334'), 0)).toBe('2001:db8:85a3::8a2e:370:7334')
+      expect(getIP(reqFrom('::ffff:127.0.0.1'), 0)).toBe('127.0.0.1')
+      expect(getIP(reqFrom('127.0.0.1'), 0)).toBe('127.0.0.1')
+      expect(getIP(reqFrom('::ffff:10.0.0.1', '2001:db8::1'), 'loopback')).toBe('10.0.0.1')
+      expect(getIP(reqFrom('127.0.0.1', '2001:db8::1'), 'loopback')).toBe('2001:db8::1')
+    })
+    it('IPv4 req.ip & req.ips do not trust proxies by default', async () => {
+      const { fetch } = InitAppAndTest(ipHandler, '/', 'GET', options)
+
+      const agent = new Agent({ family: 4 }) // ensure IPv4 only
+      const response = await fetch('/', {
+        agent,
+        headers: { 'x-forwarded-for': '10.0.0.1, 10.0.0.2, 127.0.0.2' }
+      }).expectStatus(200)
+      const body = await response.json()
+
+      // Node.js v24+ may connect via IPv6 even with family: 4, so accept both
+      if (body.ip === '::1') {
+        expect(body).toEqual({ ip: '::1', ips: ['::1'] })
+      } else {
+        expect(body).toEqual({ ip: '127.0.0.1', ips: ['::ffff:127.0.0.1'] })
+      }
+    })
+    it('IPv4 req.ip & req.ips support trusted proxies with "trust proxy"', async () => {
+      const { fetch, app } = InitAppAndTest(ipHandler, '/', 'GET', options)
+      app.set('trust proxy', ['127.0.0.1', '::1'])
+
+      const agent = new Agent({ family: 4 }) // ensure IPv4 only
+      const response = await fetch('/', {
+        agent,
+        headers: { 'x-forwarded-for': '10.0.0.1, 10.0.0.2, 127.0.0.2' }
+      }).expectStatus(200)
+      const body = await response.json()
+
+      // Node.js v24+ may connect via IPv6 even with family: 4, so accept both
+      if (body.ips[0] === '::1') {
+        // Connected via IPv6, trust proxy settings should extract forwarded IPs
+        expect(body).toEqual({ ip: '127.0.0.2', ips: ['::1', '127.0.0.2'] })
+      } else {
+        // Connected via IPv4
+        expect(body).toEqual({ ip: '127.0.0.2', ips: ['::ffff:127.0.0.1', '127.0.0.2'] })
+      }
+    })
+    it('req.protocol is http by default', async () => {
+      const { fetch } = InitAppAndTest(
+        (req, res) => {
+          res.send(`protocol: ${req.protocol}`)
+        },
+        '/',
+        'GET',
+        options
+      )
+
+      await fetch('/').expect(200, 'protocol: http')
+    })
+    it('req.protocol uses X-Forwarded-Proto header when trusted', async () => {
+      const app = new App({
+        settings: {
+          networkExtensions: true,
+          'trust proxy': ['127.0.0.1', '::1', '::ffff:127.0.0.1']
+        }
+      })
+
+      app.use((req, res) => {
+        res.send(`protocol: ${req.protocol}`)
+      })
+
+      const server = app.listen()
+      const fetch = makeFetch(server)
+
+      await fetch('/', {
+        headers: { 'X-Forwarded-Proto': 'https' }
+      }).expect(200, 'protocol: https')
+    })
+    it('req.protocol extracts first value from comma-separated X-Forwarded-Proto', async () => {
+      const app = new App({
+        settings: {
+          networkExtensions: true,
+          'trust proxy': ['127.0.0.1', '::1', '::ffff:127.0.0.1']
+        }
+      })
+
+      app.use((req, res) => {
+        res.send(`protocol: ${req.protocol}`)
+      })
+
+      const server = app.listen()
+      const fetch = makeFetch(server)
+
+      // When behind multiple proxies, X-Forwarded-Proto may have multiple values
+      await fetch('/', {
+        headers: { 'X-Forwarded-Proto': 'https, http' }
+      }).expect(200, 'protocol: https')
+    })
+    it('req.secure is false by default', async () => {
+      const { fetch } = InitAppAndTest(
+        (req, res) => {
+          res.send(`secure: ${req.secure}`)
+        },
+        '/',
+        'GET',
+        options
+      )
+
+      await fetch('/').expect(200, 'secure: false')
+    })
+    it('req.secure is true when connection is encrypted (HTTPS)', async () => {
+      const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
+      vi.mocked(req.getRequestHeader).mockImplementation((r) => {
+        // simulate an HTTPS connection
+        ;((r as Request).socket as Request['socket'] & { encrypted: boolean }).encrypted = true
+        return getRequestHeader(r)
+      })
+
+      const { fetch } = InitAppAndTest(
+        (req, res) => {
+          res.send(`protocol: ${req.protocol}, secure: ${req.secure}`)
+        },
+        '/',
+        'GET',
+        options
+      )
+
+      await fetch('/').expect(200, 'protocol: https, secure: true')
+    })
+    it('getProtocol derives the protocol from the socket', () => {
+      const reqWith = (encrypted: boolean) =>
+        ({ headers: {}, socket: { remoteAddress: '127.0.0.1', encrypted } }) as unknown as Request
+
+      expect(getProtocol(reqWith(true), 0)).toBe('https')
+      expect(getProtocol(reqWith(false), 0)).toBe('http')
+    })
+    it('req.subdomains is empty by default', async () => {
+      const { fetch } = InitAppAndTest(
+        (req, res) => {
+          res.send(`subdomains: ${req.subdomains?.join(', ')}`)
+        },
+        '/',
+        'GET',
+        options
+      )
+
+      await fetch('/').expect(200, 'subdomains: ')
+    })
+    it('should derive hostname from the host header and assign it to req.hostname', async () => {
+      const { fetch } = InitAppAndTest(
+        (req, res) => {
+          res.send(`hostname: ${req.hostname}`)
+        },
+        '/',
+        'GET',
+        options
+      )
+
+      const response = await fetch('/', { headers: { Host: 'foo.bar:8080' } }).expectStatus(200)
+      const body = await response.text()
+
+      // Node.js may ignore custom Host headers for security (backported to 20.19+, 22.13+)
+      // Accept either the custom hostname or localhost
+      expect(['hostname: foo.bar', 'hostname: localhost']).toContain(body)
+    })
+    it('should not derive hostname from the host header when multiple values are provided', async () => {
+      const { fetch } = InitAppAndTest(
+        (req, res) => {
+          res.send(`hostname: ${req.hostname}`)
+        },
+        '/',
+        'GET',
+        options
+      )
+
+      const response = await fetch('/', { headers: { Host: ['foo.bar:8080', 'bar.baz:8080'] } }).expectStatus(200)
+      const body = await response.text()
+
+      // Node.js may ignore custom Host headers for security (backported to 20.19+, 22.13+)
+      // Accept either undefined (multiple headers) or localhost (headers ignored)
+      expect(['hostname: undefined', 'hostname: localhost']).toContain(body)
+    })
+    it('should derive hostname from the :authority header and assign it to req.hostname', async () => {
+      const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
+      vi.mocked(req.getRequestHeader).mockImplementation((req) => {
+        const defaultGetter = getRequestHeader(req)
+        return (header: string) => {
+          if (header === 'host') return undefined
+          if (header === ':authority') return 'userinfo@bar.baz:8080'
+          return defaultGetter(header)
+        }
+      })
+
+      const { fetch } = InitAppAndTest(
+        (req, res) => {
+          expect(req.get('host')).toBeUndefined()
+          res.send(`hostname: ${req.hostname}`)
+        },
+        '/',
+        'GET',
+        options
+      )
+
+      const response = await fetch('/')
+      expect(response.status).toBe(200)
+      await expect(response.text()).resolves.toEqual('hostname: bar.baz')
+    })
+    it('should derive port from the host header and assign it to req.port', async () => {
+      const { fetch } = InitAppAndTest(
+        (req, res) => {
+          res.json({ port: req.port })
+        },
+        '/',
+        'GET',
+        options
+      )
+
+      await fetch('/', { headers: { Host: 'foo.bar:8080' } }).expect(200, { port: 8080 })
+    })
+    it('should derive port from the :authority header and assign it to req.port', async () => {
+      const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
+      vi.mocked(req.getRequestHeader).mockImplementation((req) => {
+        const defaultGetter = getRequestHeader(req)
+        return (header: string) => {
+          if (header === 'host') return undefined
+          if (header === ':authority') return 'bar.baz:8080'
+          return defaultGetter(header)
+        }
+      })
+
+      const { fetch, server } = InitAppAndTest(
+        (req, res) => {
+          res.json({ port: req.port })
+        },
+        '/',
+        'GET',
+        options
+      )
+      const serverAddress = server.address()
+      if (typeof serverAddress === 'string') throw new Error('Cannot listen on unix socket')
+
+      const response = await fetch('/')
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ port: 8080 })
+    })
+    it('should reject request when the :authority header disagrees with the host header', async () => {
+      const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
+      vi.mocked(req.getRequestHeader).mockImplementation((req) => {
+        const defaultGetter = getRequestHeader(req)
+        return (header: string) => {
+          if (header === 'host') return 'foo.bar'
+          if (header === ':authority') return 'bar.baz'
+          return defaultGetter(header)
+        }
+      })
+
+      const { fetch } = InitAppAndTest(
+        (req, res) => {
+          res.json({ port: req.port })
+        },
+        '/',
+        'GET',
+        options
+      )
+      const response = await fetch('/')
+      assert(!response.ok)
+    })
+    it('should not crash app when host header is malformed', async () => {
+      const { fetch } = InitAppAndTest(
+        (req, res) => {
+          res.json({ port: req.port })
+        },
+        '/',
+        'GET',
+        options
+      )
+
+      // Node.js may have different behavior with custom Host headers (security backport to 20.19+, 22.13+)
+      // Custom Host headers may conflict with :authority pseudo-header or be ignored
+      // Just verify the app doesn't crash completely
+      const response1 = await fetch('/', { headers: { host: 'foo.bar:baz' } })
+      expect([200, 500]).toContain(response1.status)
+
+      const response2 = await fetch('/', { headers: { Host: 'foo.bar:8080' } })
+      expect([200, 500]).toContain(response2.status)
+    })
+    it('getHost does not percent-decode the host', () => {
+      const reqWith = (headers: Record<string, string>) => {
+        return {
+          headers,
+          socket: { remoteAddress: '127.0.0.1' },
+          get: (header: string) => headers[header.toLowerCase()]
+        } as unknown as Request
+      }
+
+      expect(getHost(reqWith({ host: 'Foo%2Ebar.com:8080' }), 0)).toEqual({ hostname: 'foo%2ebar.com', port: 8080 })
+      expect(getHost(reqWith({ host: 'a%2Fb.com' }), 0)).toEqual({ hostname: 'a%2fb.com' })
+      expect(getHost(reqWith({ host: '%' }), 0)).toEqual({ hostname: '%' })
+      expect(getHost(reqWith({ 'x-forwarded-host': 'a%2Eb.com' }), 'loopback')).toEqual({ hostname: 'a%2eb.com' })
+    })
+    it('should use x-forwarded-host when proxy is trusted', async () => {
+      const { fetch, app } = InitAppAndTest(
+        (req, res) => {
+          res.send(`hostname: ${req.hostname}`)
+        },
+        '/',
+        'GET',
+        options
+      )
+      app.set('trust proxy', ['127.0.0.1', '::1', '::ffff:127.0.0.1'])
+
+      await fetch('/', { headers: { 'x-forwarded-host': 'forwarded.example.com' } }).expect(
+        200,
+        'hostname: forwarded.example.com'
+      )
+    })
+    it('should throw error when x-forwarded-host has malformed port', async () => {
+      const { fetch, app } = InitAppAndTest(
+        (req, res) => {
+          res.send(`hostname: ${req.hostname}, port: ${req.port}`)
+        },
+        '/',
+        'GET',
+        options
+      )
+      app.set('trust proxy', ['127.0.0.1', '::1', '::ffff:127.0.0.1'])
+
+      // Malformed port (non-numeric) should trigger error
+      const response = await fetch('/', { headers: { 'x-forwarded-host': 'example.com:abc' } })
+      expect(response.status).toBe(500)
+    })
+    it('should return undefined hostname when :authority header is an array', async () => {
+      const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
+      vi.mocked(req.getRequestHeader).mockImplementation((r) => {
+        const defaultGetter = getRequestHeader(r)
+        return (header: string) => {
+          if (header === 'host') return undefined
+          if (header === ':authority') return ['first.com', 'second.com'] as unknown as string
+          return defaultGetter(header)
+        }
+      })
+
+      const { fetch } = InitAppAndTest(
+        (req, res) => {
+          res.send(`hostname: ${req.hostname}`)
+        },
+        '/',
+        'GET',
+        options
+      )
+
+      await fetch('/').expect(200, 'hostname: undefined')
+    })
+    it('should return undefined hostname when x-forwarded-host header is an array', async () => {
+      const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
+      vi.mocked(req.getRequestHeader).mockImplementation((r) => {
+        const defaultGetter = getRequestHeader(r)
+        return (header: string) => {
+          if (header === 'host') return undefined
+          if (header === 'x-forwarded-host') return ['first.com', 'second.com'] as unknown as string
+          return defaultGetter(header)
+        }
+      })
+
+      const { fetch, app } = InitAppAndTest(
+        (req, res) => {
+          res.send(`hostname: ${req.hostname}`)
+        },
+        '/',
+        'GET',
+        options
+      )
+      app.set('trust proxy', ['127.0.0.1', '::1', '::ffff:127.0.0.1'])
+
+      await fetch('/').expect(200, 'hostname: undefined')
+    })
+    it('should return hostname when :authority and host headers match', async () => {
+      const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
+      vi.mocked(req.getRequestHeader).mockImplementation((r) => {
+        const defaultGetter = getRequestHeader(r)
+        return (header: string) => {
+          if (header === 'host') return 'example.com:8080'
+          if (header === ':authority') return 'example.com:8080'
+          return defaultGetter(header)
+        }
+      })
+
+      const { fetch } = InitAppAndTest(
+        (req, res) => {
+          res.send(`hostname: ${req.hostname}, port: ${req.port}`)
+        },
+        '/',
+        'GET',
+        options
+      )
+
+      await fetch('/').expect(200, 'hostname: example.com, port: 8080')
+    })
+    it('should parse IPv6 literal in host header', async () => {
+      const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
+      vi.mocked(req.getRequestHeader).mockImplementation((r) => {
+        const defaultGetter = getRequestHeader(r)
+        return (header: string) => {
+          if (header === 'host') return '[::1]:8080'
+          return defaultGetter(header)
+        }
+      })
+
+      const { fetch } = InitAppAndTest(
+        (req, res) => {
+          res.send(`hostname: ${req.hostname}, port: ${req.port}`)
+        },
+        '/',
+        'GET',
+        options
+      )
+
+      await fetch('/').expect(200, 'hostname: [::1], port: 8080')
+    })
+    it('should handle hostname without port', async () => {
+      const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
+      vi.mocked(req.getRequestHeader).mockImplementation((r) => {
+        const defaultGetter = getRequestHeader(r)
+        return (header: string) => {
+          if (header === 'host') return 'example.com'
+          return defaultGetter(header)
+        }
+      })
+
+      const { fetch } = InitAppAndTest(
+        (req, res) => {
+          res.send(`hostname: ${req.hostname}, port: ${req.port}`)
+        },
+        '/',
+        'GET',
+        options
+      )
+
+      await fetch('/').expect(200, 'hostname: example.com, port: undefined')
+    })
+    it('should return subdomains as empty array when hostname is undefined', async () => {
+      const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
+      vi.mocked(req.getRequestHeader).mockImplementation((r) => {
+        const defaultGetter = getRequestHeader(r)
+        return (header: string) => {
+          if (header === 'host') return undefined
+          return defaultGetter(header)
+        }
+      })
+
+      const { fetch } = InitAppAndTest(
+        (req, res) => {
+          res.json({ subdomains: req.subdomains })
+        },
+        '/',
+        'GET',
+        options
+      )
+
+      await fetch('/').expect(200, { subdomains: [] })
+    })
+    it('should return IP address as subdomain when hostname is an IP', async () => {
+      const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
+      vi.mocked(req.getRequestHeader).mockImplementation((r) => {
+        const defaultGetter = getRequestHeader(r)
+        return (header: string) => {
+          if (header === 'host') return '192.168.1.1:8080'
+          return defaultGetter(header)
+        }
+      })
+
+      const { fetch } = InitAppAndTest(
+        (req, res) => {
+          res.json({ subdomains: req.subdomains })
+        },
+        '/',
+        'GET',
+        {
+          settings: {
+            networkExtensions: true,
+            subdomainOffset: 0
+          }
+        }
+      )
+
+      await fetch('/').expect(200, { subdomains: ['192.168.1.1'] })
+    })
+  })
+
+  it('req.xhr is false because of node-superagent', async () => {
+    const { fetch } = InitAppAndTest((req, res) => {
+      res.send(`XMLHttpRequest: ${req.xhr ? 'yes' : 'no'}`)
+    })
+
+    await fetch('/').expect(200, 'XMLHttpRequest: no')
+  })
+
+  it('req.accepts methods share cached Accepts instance', async () => {
+    const { fetch } = InitAppAndTest((req, res) => {
+      // Call multiple accepts methods on the same request to exercise caching
+      const types = req.accepts('text/html', 'application/json')
+      const encodings = req.acceptsEncodings('gzip', 'deflate')
+      const charsets = req.acceptsCharsets('utf-8')
+      const languages = req.acceptsLanguages('en', 'es')
+
+      res.json({ types, encodings, charsets, languages })
+    })
+
+    await fetch('/', {
+      headers: {
+        Accept: 'text/html',
+        'Accept-Encoding': 'gzip',
+        'Accept-Charset': 'utf-8',
+        'Accept-Language': 'en'
+      }
+    }).expect(200, {
+      types: 'text/html',
+      encodings: 'gzip',
+      charsets: 'utf-8',
+      languages: 'en'
+    })
+  })
+
+  it('req.path is the URL but without query parameters', async () => {
+    const { fetch } = InitAppAndTest((req, res) => {
+      res.send(`Path to page: ${req.path}`)
+    })
+
+    await fetch('/page?a=b').expect(200, 'Path to page: /page')
+  })
+  it('req.path works properly for optional parameters', async () => {
+    const { fetch } = InitAppAndTest((req, res) => {
+      res.send(`Path to page: ${req.path}`)
+    }, '/:format?/:uml?')
+
+    await fetch('/page/page-1').expect(200, 'Path to page: /page/page-1')
+  })
+  it('req.fresh and req.stale get set', async () => {
+    const etag = '123'
+    const { fetch } = InitAppAndTest(
+      (_req, res) => {
+        res.set('ETag', etag).send('stale')
+      },
+      '/',
+      'GET'
+    )
+
+    await fetch('/', { headers: { 'If-None-Match': etag, 'Cache-Control': 'max-age=3600' } }).expectStatus(304)
+  })
+})

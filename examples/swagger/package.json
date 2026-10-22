@@ -1,0 +1,12 @@
+{
+  "name": "swagger",
+  "private": true,
+  "dependencies": {
+    "@tinyhttp/app": "workspace:*",
+    "@tinyhttp/swagger": "^0.1.4"
+  },
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  }
+}

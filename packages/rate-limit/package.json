@@ -1,0 +1,44 @@
+{
+  "name": "@tinyhttp/rate-limit",
+  "version": "2.1.12",
+  "type": "module",
+  "description": "Basic IP rate-limiting middleware for tinyhttp. Use to limit repeated requests to public APIs and/or endpoints such as password reset.",
+  "homepage": "https://tinyhttp.v1rtl.site",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tinyhttp/tinyhttp.git",
+    "directory": "packages/rate-limit"
+  },
+  "types": "./dist/index.d.ts",
+  "exports": "./dist/index.js",
+  "keywords": [
+    "tinyhttp-rate-limit",
+    "tinyttp",
+    "rate",
+    "limit",
+    "ratelimit",
+    "rate-limit",
+    "middleware",
+    "ip",
+    "security",
+    "brute",
+    "force",
+    "bruteforce",
+    "brute-force",
+    "attack"
+  ],
+  "engines": {
+    "node": ">=14.13.1"
+  },
+  "author": "Luiginator",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@tinyhttp/send": "workspace:*"
+  },
+  "files": [
+    "dist"
+  ]
+}

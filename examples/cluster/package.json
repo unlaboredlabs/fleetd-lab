@@ -1,0 +1,11 @@
+{
+  "name": "cluster",
+  "private": true,
+  "dependencies": {
+    "@tinyhttp/app": "workspace:*"
+  },
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  }
+}

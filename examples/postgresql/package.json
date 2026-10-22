@@ -1,0 +1,15 @@
+{
+  "name": "postgresql",
+  "private": true,
+  "type": "module",
+  "module": "index.js",
+  "dependencies": {
+    "@tinyhttp/app": "workspace:*",
+    "@tinyhttp/dotenv": "workspace:*",
+    "milliparsec": "^5.0.2",
+    "pg-promise": "^11.13.0"
+  },
+  "scripts": {
+    "start": "node index.js"
+  }
+}

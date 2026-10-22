@@ -1,0 +1,14 @@
+{
+  "name": "eta",
+  "private": true,
+  "dependencies": {
+    "@tinyhttp/app": "workspace:*",
+    "eta": "^3.5.0"
+  },
+  "scripts": {
+    "start": "tsm index.ts"
+  },
+  "devDependencies": {
+    "tsm": "^2.3.0"
+  }
+}

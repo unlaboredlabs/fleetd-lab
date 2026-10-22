@@ -1,0 +1,15 @@
+{
+  "name": "file-upload",
+  "private": true,
+  "dependencies": {
+    "@tinyhttp/app": "workspace:*",
+    "formidable": "^3.5.2"
+  },
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "devDependencies": {
+    "@types/formidable": "^3.4.5"
+  }
+}

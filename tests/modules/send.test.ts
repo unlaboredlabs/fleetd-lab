@@ -1,0 +1,530 @@
+import fs from 'node:fs'
+import path from 'node:path'
+import { makeFetch } from 'supertest-fetch'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { App } from '../../packages/app/src'
+import { json, send, sendFile, sendStatus, status } from '../../packages/send/src'
+import { runServer } from '../../test_helpers/runServer'
+
+const __dirname = import.meta.dirname
+
+describe('json(body)', () => {
+  it('should send a json-stringified reply when an object is passed', async () => {
+    const app = runServer((_, res) => json(res)({ hello: 'world' }))
+
+    await makeFetch(app)('/').expect({ hello: 'world' })
+  })
+  it('should set a content-type header properly', async () => {
+    const app = runServer((_, res) => json(res)({ hello: 'world' }))
+
+    await makeFetch(app)('/').expectHeader('content-type', 'application/json')
+  })
+  it('should send a null reply when an null is passed', async () => {
+    const app = runServer((_, res) => json(res)(null))
+
+    await makeFetch(app)('/').expect(null)
+  })
+  it('should be able to respond with booleans', async () => {
+    const app = runServer((_, res) => json(res)(true))
+
+    await makeFetch(app)('/').expectBody('true')
+  })
+  it('should be able to respond with numbers', async () => {
+    const app = runServer((_, res) => json(res)(123))
+
+    await makeFetch(app)('/').expectBody('123')
+  })
+  it('should be able to respond with strings', async () => {
+    const app = runServer((_, res) => json(res)('hello'))
+
+    await makeFetch(app)('/').expectBody('hello')
+  })
+})
+
+describe('send(body)', () => {
+  it('should send a plain text', async () => {
+    const app = runServer((req, res) => send(req, res)('Hello World'))
+
+    await makeFetch(app)('/').expect('Hello World')
+  })
+  it('should set HTML content-type header when sending plain text', async () => {
+    const app = runServer((req, res) => send(req, res)('Hello World'))
+
+    await makeFetch(app)('/').expectHeader('Content-Type', 'text/html; charset=utf-8')
+  })
+  it('should generate an eTag on a plain text response', async () => {
+    const app = runServer((req, res) => send(req, res)('Hello World'))
+
+    await makeFetch(app)('/').expectHeader('etag', 'W/"b-Ck1VqNd45QIvq3AZd8XYQLvEhtA"')
+  })
+  it('should send a JSON response', async () => {
+    const app = runServer((req, res) => send(req, res)({ hello: 'world' }))
+
+    await makeFetch(app)('/').expectHeader('Content-Type', 'application/json').expectBody({ hello: 'world' })
+  })
+  it('should send a buffer', async () => {
+    const app = runServer((req, res) => send(req, res)(Buffer.from('Hello World')))
+
+    await makeFetch(app)('/').expect('Hello World')
+  })
+  it('should preserve Content-Type when sending buffer with Content-Type already set', async () => {
+    const app = runServer((req, res) => {
+      res.setHeader('Content-Type', 'application/custom-binary')
+      send(req, res)(Buffer.from('binary data'))
+    })
+
+    await makeFetch(app)('/').expectHeader('Content-Type', 'application/custom-binary')
+  })
+  it('should handle non-string body that needs toString conversion', async () => {
+    const app = runServer((req, res) => {
+      // Set ETag first to avoid createETag being called on non-string
+      res.setHeader('etag', 'custom-etag')
+      // Send a number which is not a string and not a buffer/object
+      send(req, res)(12345 as unknown as string)
+    })
+
+    await makeFetch(app)('/').expect('12345')
+  })
+  it('should send nothing on a HEAD request', async () => {
+    const app = runServer((req, res) => send(req, res)('Hello World'))
+
+    await makeFetch(app)('/', {
+      method: 'HEAD'
+    }).expectBody('')
+  })
+  it('should send nothing if body is empty', async () => {
+    const app = runServer((req, res) => send(req, res)(null))
+
+    await makeFetch(app)('/').expectBody('')
+  })
+  it('should remove some headers for 204 status', async () => {
+    const app = runServer((req, res) => {
+      res.statusCode = 204
+
+      send(req, res)('Hello World')
+    })
+
+    await makeFetch(app)('/')
+      .expectHeader('Content-Length', null)
+      .expectHeader('Content-Type', null)
+      .expectHeader('Transfer-Encoding', null)
+  })
+  it('should remove some headers for 304 status', async () => {
+    const app = runServer((req, res) => {
+      res.statusCode = 304
+
+      send(req, res)('Hello World')
+    })
+
+    await makeFetch(app)('/')
+      .expectHeader('Content-Length', null)
+      .expectHeader('Content-Type', null)
+      .expectHeader('Transfer-Encoding', null)
+  })
+  it("should set Content-Type to application/octet-stream for buffers if the header hasn't been set before", async () => {
+    const app = runServer((req, res) => send(req, res)(Buffer.from('Hello World', 'utf-8')).end())
+
+    await makeFetch(app)('/').expectHeader('Content-Type', 'application/octet-stream')
+  })
+  it('should set 304 status for fresh requests', async () => {
+    const etag = 'abc'
+
+    const app = new App()
+
+    const server = app.listen()
+
+    app.use((_req, res) => {
+      const str = Array(1000).join('-')
+      res.set('ETag', etag).send(str)
+    })
+
+    await makeFetch(server)('/', {
+      headers: {
+        'If-None-Match': etag,
+        'Cache-Control': 'max-age=3600'
+      }
+    }).expectStatus(304)
+  })
+})
+
+describe('status(status)', () => {
+  it('sets response status', async () => {
+    const app = runServer((_, res) => status(res)(418).end())
+
+    await makeFetch(app)('/').expectStatus(418)
+  })
+  it('supports nesting', async () => {
+    const app = runServer((_, res) => {
+      const r = status(res)(418)
+
+      expect(r).toBe(res)
+
+      r.end()
+    })
+
+    await makeFetch(app)('/').expectStatus(418)
+  })
+})
+
+describe('sendStatus(status)', () => {
+  it(`should send "I'm a teapot" when argument is 418`, async () => {
+    const app = runServer((req, res) => sendStatus(req, res)(418).end())
+
+    await makeFetch(app)('/').expect("I'm a Teapot")
+  })
+  it('should send stringified status code for unsupported status codes', async () => {
+    const app = runServer((req, res) => sendStatus(req, res)(999).end())
+
+    await makeFetch(app)('/').expect(999, '999')
+  })
+})
+
+describe('sendFile(path)', () => {
+  const testFilePath = path.resolve(__dirname, 'test.txt')
+
+  beforeAll(() => {
+    fs.writeFileSync(testFilePath, 'Hello World')
+  })
+
+  afterAll(() => {
+    fs.unlinkSync(testFilePath)
+  })
+
+  it('should send the file', async () => {
+    const app = runServer((req, res) => sendFile(req, res)(testFilePath, {}))
+
+    await makeFetch(app)('/').expect('Hello World')
+  })
+
+  it('should throw if absolute path contains ".." without root', async () => {
+    const app = runServer(async (req, res) => {
+      try {
+        sendFile(req, res)('/tmp/../../../etc/passwd')
+      } catch (err) {
+        expect(err.message).toMatch(/must not contain/)
+
+        res.end()
+
+        return
+      }
+
+      throw new Error('Did not throw an error')
+    })
+
+    await makeFetch(app)('/')
+  })
+  it('should throw if path is not absolute', async () => {
+    const app = runServer(async (req, res) => {
+      try {
+        sendFile(req, res)('../relative/path', {})
+      } catch (err) {
+        expect(err.message).toMatch(/absolute/)
+
+        res.end()
+
+        return
+      }
+
+      throw new Error('Did not throw an error')
+    })
+
+    await makeFetch(app)('/')
+  })
+  it('should set the Content-Type header based on the filename', async () => {
+    const app = runServer((req, res) => sendFile(req, res)(testFilePath, {}))
+
+    await makeFetch(app)('/').expectHeader('Content-Type', 'text/plain; charset=utf-8')
+  })
+  it('should send a relative path inside root', async () => {
+    const app = runServer((req, res) => sendFile(req, res)('test.txt', { root: __dirname }))
+
+    await makeFetch(app)('/').expect('Hello World')
+  })
+  it('should send a normalized path inside root', async () => {
+    const app = runServer((req, res) => sendFile(req, res)('foo/../test.txt', { root: __dirname }))
+
+    await makeFetch(app)('/').expect('Hello World')
+  })
+  it('should keep an absolute-looking path inside root', async () => {
+    const app = runServer((req, res) => sendFile(req, res)('/test.txt', { root: __dirname }))
+
+    await makeFetch(app)('/').expect('Hello World')
+  })
+  it('should throw if path traverses outside root', async () => {
+    const app = runServer((req, res) => {
+      try {
+        sendFile(req, res)('../relative/path', { root: __dirname })
+      } catch (err) {
+        expect(err.message).toMatch(/must not contain/)
+
+        res.end()
+
+        return
+      }
+
+      throw new Error('Did not throw an error')
+    })
+
+    await makeFetch(app)('/')
+  })
+  it('should throw if normalized path traverses outside root', async () => {
+    const app = runServer((req, res) => {
+      try {
+        sendFile(req, res)('foo/../../test.txt', { root: __dirname })
+      } catch (err) {
+        expect(err.message).toMatch(/must not contain/)
+
+        res.end()
+
+        return
+      }
+
+      throw new Error('Did not throw an error')
+    })
+
+    await makeFetch(app)('/')
+  })
+  it('should inherit the previously set Content-Type header', async () => {
+    const app = runServer((req, res) => {
+      res.setHeader('Content-Type', 'text/markdown')
+
+      sendFile(req, res)(testFilePath, {})
+    })
+
+    await makeFetch(app)('/').expectHeader('Content-Type', 'text/markdown')
+  })
+  it('should allow custom headers through the options param', async () => {
+    const HEADER_NAME = 'Test-Header'
+    const HEADER_VALUE = 'Hello World'
+
+    const app = runServer((req, res) => sendFile(req, res)(testFilePath, { headers: { [HEADER_NAME]: HEADER_VALUE } }))
+
+    await makeFetch(app)('/').expectHeader(HEADER_NAME, HEADER_VALUE)
+  })
+
+  it('should support Range header', async () => {
+    const app = runServer((req, res) => sendFile(req, res)(testFilePath))
+    await makeFetch(app)('/', {
+      headers: {
+        Range: 'bytes=0-4'
+      }
+    })
+      .expectStatus(206)
+      .expect('Content-Length', '5')
+      .expect('Accept-Ranges', 'bytes')
+      .expect('Hello')
+  })
+  it('should clamp an end position beyond the file size (bytes=0-666)', async () => {
+    const app = runServer((req, res) => sendFile(req, res)(testFilePath))
+    await makeFetch(app)('/', {
+      headers: {
+        Range: 'bytes=0-666'
+      }
+    })
+      .expectStatus(206)
+      .expect('Content-Range', 'bytes 0-10/11')
+      .expect('Hello World')
+  })
+  it('should send 416 when the range start is beyond the file size', async () => {
+    const app = runServer((req, res) => sendFile(req, res)(testFilePath))
+    await makeFetch(app)('/', {
+      headers: {
+        Range: 'bytes=666-777'
+      }
+    })
+      .expectStatus(416)
+      .expectHeader('Content-Range', 'bytes */11')
+  })
+  // GHSA-w65r-fqv6-q6w9: an inverted range (start > end) must not crash the
+  // process. Previously it slipped past the bounds check, produced a negative
+  // Content-Length and made createReadStream throw after headers were committed.
+  it('should send 416 for an inverted Range (start > end) without crashing', async () => {
+    const app = runServer((req, res) => sendFile(req, res)(testFilePath))
+    await makeFetch(app)('/', {
+      headers: {
+        Range: 'bytes=10-5'
+      }
+    })
+      .expectStatus(416)
+      .expectHeader('Content-Range', 'bytes */11')
+  })
+  it('should send 416 for an inverted Range where end parses as falsy (bytes=1-0)', async () => {
+    const app = runServer((req, res) => sendFile(req, res)(testFilePath))
+    await makeFetch(app)('/', {
+      headers: {
+        Range: 'bytes=1-0'
+      }
+    })
+      .expectStatus(416)
+      .expectHeader('Content-Range', 'bytes */11')
+  })
+  it('should serve the full body (200) for a malformed Range header', async () => {
+    const app = runServer((req, res) => sendFile(req, res)(testFilePath))
+    // header-range-parser v2 classifies `bytes=abc-def` as syntactically
+    // invalid (-2) rather than unsatisfiable (-1), so per RFC 9110 the header
+    // is ignored and the whole file is served instead of a 416.
+    await makeFetch(app)('/', {
+      headers: {
+        Range: 'bytes=abc-def'
+      }
+    })
+      .expectStatus(200)
+      .expect('Content-Length', '11')
+      .expect('Hello World')
+  })
+  it('should serve the full body (200) for a syntactically invalid Range header', async () => {
+    const app = runServer((req, res) => sendFile(req, res)(testFilePath))
+    // No "=" → header-range-parser returns -2 (invalid), so we ignore the
+    // header and respond with the whole file instead of a partial/416.
+    await makeFetch(app)('/', {
+      headers: {
+        Range: 'invalid-range'
+      }
+    })
+      .expectStatus(200)
+      .expect('Content-Length', '11')
+      .expect('Hello World')
+  })
+  it('should serve the full body (200) for a multi-range request', async () => {
+    const app = runServer((req, res) => sendFile(req, res)(testFilePath))
+    // Multiple ranges are parsed successfully but we only support single-range
+    // responses, so this falls through to a normal 200 full-body response.
+    await makeFetch(app)('/', {
+      headers: {
+        Range: 'bytes=0-1,4-5'
+      }
+    })
+      .expectStatus(200)
+      .expect('Content-Length', '11')
+      .expect('Hello World')
+  })
+  it('should handle a Range header supplied as an array', async () => {
+    // Node normally collapses duplicate Range headers to a string, but the type
+    // allows string[]; sendFile should use the first entry rather than throw.
+    const chunks: Buffer[] = []
+    const res = {
+      headers: {} as Record<string, string | number>,
+      statusCode: 0,
+      setHeader(k: string, v: string | number) {
+        this.headers[k.toLowerCase()] = v
+      },
+      getHeader(k: string) {
+        return this.headers[k.toLowerCase()]
+      },
+      writeHead(code: number) {
+        this.statusCode = code
+        return this
+      },
+      // WritableStream surface used by stream.pipe / .end
+      on() {
+        return this
+      },
+      once() {
+        return this
+      },
+      emit() {
+        return true
+      },
+      write(chunk: Buffer) {
+        chunks.push(Buffer.from(chunk))
+        return true
+      },
+      end(chunk?: Buffer) {
+        if (chunk) chunks.push(Buffer.from(chunk))
+        return this
+      }
+    }
+    const req = { headers: { range: ['bytes=0-4', 'bytes=6-10'] as string[] } }
+
+    // biome-ignore lint/suspicious/noExplicitAny: minimal req/res test doubles
+    sendFile(req as any, res as any)(testFilePath)
+
+    await new Promise((resolve) => setTimeout(resolve, 30))
+
+    expect(res.statusCode).toBe(206)
+    expect(res.headers['content-range']).toBe('bytes 0-4/11')
+    expect(res.headers['content-length']).toBe('5')
+  })
+  it('should set default encoding to UTF-8', async () => {
+    const app = runServer((req, res) => sendFile(req, res)(testFilePath))
+    await makeFetch(app)('/').expectStatus(200).expectHeader('Content-Encoding', 'utf-8')
+  })
+  it('should inherit the previously set status code', async () => {
+    const app = runServer((req, res) => {
+      res.statusCode = 418
+      sendFile(req, res)(testFilePath)
+    })
+
+    await makeFetch(app)('/').expectStatus(418)
+  })
+  it('should default to status 200 when statusCode is falsy', async () => {
+    const app = runServer((req, res) => {
+      res.statusCode = 0
+      sendFile(req, res)(testFilePath)
+    })
+
+    await makeFetch(app)('/').expectStatus(200)
+  })
+  it('should enable cache headers', async () => {
+    const app = runServer((req, res) =>
+      sendFile(req, res)(testFilePath, { caching: { maxAge: 4000, immutable: true } })
+    )
+    await makeFetch(app)('/').expectHeader('Cache-Control', 'public,max-age=4000,immutable')
+  })
+  it('should mark cache is "must-revalidate" if maxAge is 0', async () => {
+    const app = runServer((req, res) => sendFile(req, res)(testFilePath, { caching: { maxAge: 0 } }))
+    await makeFetch(app)('/').expectHeader('Cache-Control', 'public,max-age=0,must-revalidate')
+  })
+  it('should set cache control with maxAge=0 and immutable=false', async () => {
+    const app = runServer((req, res) => sendFile(req, res)(testFilePath, { caching: { maxAge: 0, immutable: false } }))
+    await makeFetch(app)('/').expectHeader('Cache-Control', 'public,max-age=0,must-revalidate')
+  })
+  it('should handle Range header with only start position', async () => {
+    const app = runServer((req, res) => sendFile(req, res)(testFilePath))
+    // Range with only start, no end (bytes=5-)
+    await makeFetch(app)('/', {
+      headers: {
+        Range: 'bytes=5-'
+      }
+    })
+      .expectStatus(206)
+      .expect('Content-Range', 'bytes 5-10/11')
+      .expect(' World')
+  })
+  it('should set cache header with just maxAge when not immutable and not 0', async () => {
+    const app = runServer((req, res) => sendFile(req, res)(testFilePath, { caching: { maxAge: 3600 } }))
+    await makeFetch(app)('/').expectHeader('Cache-Control', 'public,max-age=3600')
+  })
+  it('should not set Cache-Control header when no caching options provided', async () => {
+    const app = runServer((req, res) => sendFile(req, res)(testFilePath, {}))
+
+    const response = await makeFetch(app)('/')
+    expect(response.headers.get('Cache-Control')).toBeNull()
+  })
+  it('should not set Cache-Control header when caching is empty object', async () => {
+    const app = runServer((req, res) => sendFile(req, res)(testFilePath, { caching: {} }))
+
+    const response = await makeFetch(app)('/')
+    expect(response.headers.get('Cache-Control')).toBeNull()
+  })
+  it('should call callback on successful stream completion', async () => {
+    let callbackCalled = false
+    let callbackError: Error | undefined
+
+    const app = runServer((req, res) => {
+      sendFile(req, res)(testFilePath, {}, (err) => {
+        callbackCalled = true
+        callbackError = err
+      })
+    })
+
+    await makeFetch(app)('/').expect('Hello World')
+    // Give stream time to complete and callback to fire
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(callbackCalled).toBe(true)
+    expect(callbackError).toBeUndefined()
+  })
+  // Note: Testing callback error path requires environment-specific conditions
+  // (file permission denial) that can't be reliably tested across all CI environments.
+  // The success callback test above verifies the callback mechanism works correctly.
+})

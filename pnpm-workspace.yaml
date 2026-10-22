@@ -1,0 +1,15 @@
+packages:
+  - "packages/*"
+
+catalog:
+  "@tinyhttp/content-type": ^0.1.4
+  header-range-parser: 2.0.0
+  mrmime: ^2.0.1
+  regexparam: ^3.0.0
+
+trustPolicy: no-downgrade
+
+minimumReleaseAge: 1440
+trustPolicyIgnoreAfter: 10080
+allowBuilds:
+  esbuild: true

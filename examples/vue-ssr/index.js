@@ -1,0 +1,33 @@
+import { App } from '@tinyhttp/app'
+import sirv from 'sirv'
+import { renderToString } from 'vue/server-renderer'
+import { createApp } from './app.js'
+
+const app = new App()
+
+app
+  .use(sirv())
+  .get('*', async (_req, res) => {
+    const app = createApp()
+
+    const html = await renderToString(app)
+
+    res.send(`<!DOCTYPE html>
+    <html>
+      <head>
+        <title>Vue SSR Example</title>
+      </head>
+      <body>
+        <div id="app">${html}</div>
+        <script type="importmap">
+        {
+          "imports": {
+            "vue": "https://cdnjs.cloudflare.com/ajax/libs/vue/3.5.41/vue.esm-browser.prod.js"
+          }
+        }
+        </script>
+        <script type="module" src="./client.js"></script>
+      </body>
+    </html>`)
+  })
+  .listen(3000)

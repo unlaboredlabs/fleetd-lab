@@ -1,0 +1,12 @@
+{
+  "name": "async",
+  "private": true,
+  "dependencies": {
+    "@tinyhttp/app": "workspace:*"
+  },
+  "type": "module",
+  "module": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  }
+}

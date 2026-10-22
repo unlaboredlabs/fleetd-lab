@@ -1,0 +1,15 @@
+{
+  "name": "elasticsearch",
+  "main": "index.js",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@elastic/elasticsearch": "^8.17.1",
+    "@tinyhttp/app": "workspace:*",
+    "@tinyhttp/dotenv": "workspace:*",
+    "milliparsec": "^5.0.2"
+  },
+  "scripts": {
+    "start": "node index.js"
+  }
+}
