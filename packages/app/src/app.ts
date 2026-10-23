@@ -10,7 +10,14 @@ import { onErrorHandler } from './onError.js'
 import type { Request, URLParams } from './request.js'
 import { getURLParams } from './request.js'
 import type { Response } from './response.js'
-import type { AppConstructor, AppInterface, AppRenderOptions, AppSettings, TemplateEngine } from './types.js'
+import type {
+  AppConstructor,
+  AppInterface,
+  AppRenderOptions,
+  AppSettings,
+  ParamHandler,
+  TemplateEngine
+} from './types.js'
 import { View } from './view.js'
 
 /**
@@ -79,6 +86,7 @@ export class App<Req extends Request = Request, Res extends Response = Response>
   onError: ErrorHandler
   settings: AppSettings
   engines: Record<string, TemplateEngine> = {}
+  paramHandlers: Record<string, ParamHandler<Req, Res>[]> = Object.create(null)
   applyExtensions?: Handler
   attach: (req: Req, res: Res, next?: NextFunction) => void
   cache: Record<string, unknown>
@@ -254,6 +262,13 @@ export class App<Req extends Request = Request, Res extends Response = Response>
     return app
   }
 
+  param(name: string, handler: ParamHandler<Req, Res>): this {
+    if (!this.paramHandlers[name]) this.paramHandlers[name] = []
+    this.paramHandlers[name].push(handler)
+
+    return this
+  }
+
   #find(url: string, method: string, exclude: Middleware[]): Middleware<Req, Res>[] {
     const result: Middleware<Req, Res>[] = []
 
@@ -310,6 +325,51 @@ export class App<Req extends Request = Request, Res extends Response = Response>
     // restored once the middleware hands the request back to the app.
     let current: { url: string; baseUrl: string; entryUrl: string } | null = null
 
+    // Values the param handlers already ran for in this request, and the param value they left behind
+    const paramsCalled: Record<string, { match: string; value: string }> = Object.create(null)
+
+    const processParams = (keys: string[], params: URLParams, done: NextFunction) => {
+      let i = 0
+
+      const nextParam = (err?: unknown) => {
+        if (err != null) return done(err)
+        if (i >= keys.length) return done()
+
+        const name = keys[i++]
+        const fns = this.paramHandlers[name]
+        const match = Object.hasOwn(params, name) ? params[name] : undefined
+
+        if (!fns || match === undefined) return nextParam()
+
+        // handlers already ran for this value, restore what they set
+        if (paramsCalled[name]?.match === match) {
+          req.params[name] = paramsCalled[name].value
+          return nextParam()
+        }
+
+        let j = 0
+
+        const nextFn = (err?: unknown) => {
+          if (err != null) return done(err)
+          if (j >= fns.length) {
+            paramsCalled[name] = { match, value: req.params[name] }
+            return nextParam()
+          }
+
+          try {
+            const result = fns[j++](req, res, nextFn, match, name)
+            if (result instanceof Promise) result.catch(nextFn)
+          } catch (e) {
+            nextFn(e)
+          }
+        }
+
+        nextFn()
+      }
+
+      nextParam()
+    }
+
     const handle = (middleware: Middleware, pathname: string) => {
       const { path, handler, regex } = middleware
 
@@ -341,6 +401,14 @@ export class App<Req extends Request = Request, Res extends Response = Response>
 
       req.path ??= pathname
       if (this.settings?.enableReqRoute) req.route = middleware
+
+      if (middleware.type === 'route' && regex?.keys && regex.keys.some((key) => this.paramHandlers[key])) {
+        return processParams(regex.keys, params, (err) =>
+          err != null
+            ? next?.(err)
+            : applyHandler<Req, Res>(handler as unknown as Handler<Req, Res>, req, res, next as NextFunction)
+        )
+      }
 
       return applyHandler<Req, Res>(handler as unknown as Handler<Req, Res>, req, res, next as NextFunction)
     }

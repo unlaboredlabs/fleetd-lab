@@ -3,7 +3,7 @@ export { extendMiddleware } from './extend.js'
 export { type ErrorHandler, onErrorHandler } from './onError.js'
 export * from './request.js'
 export * from './response.js'
-export type { AppConstructor, AppSettings, TemplateEngine, TemplateEngineOptions } from './types.js'
+export type { AppConstructor, AppSettings, ParamHandler, TemplateEngine, TemplateEngineOptions } from './types.js'
 export { View } from './view.js'
 
 import type {
