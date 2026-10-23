@@ -1,0 +1,39 @@
+{
+  "name": "@tinyhttp/statuses",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "HTTP status code utilities for Node.js",
+  "homepage": "https://github.com/tinyhttp/tinyhttp/tree/master/packages/statuses#readme",
+  "engines": {
+    "node": ">=14.13.1"
+  },
+  "funding": {
+    "type": "individual",
+    "url": "https://github.com/tinyhttp/tinyhttp?sponsor=1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tinyhttp/tinyhttp.git",
+    "directory": "packages/statuses"
+  },
+  "types": "./dist/index.d.ts",
+  "exports": "./dist/index.js",
+  "keywords": [
+    "tinyhttp",
+    "node.js",
+    "web framework",
+    "web",
+    "backend",
+    "http",
+    "status",
+    "statuses"
+  ],
+  "files": [
+    "dist"
+  ],
+  "author": "v1rtl",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc"
+  }
+}
