@@ -337,7 +337,7 @@ export class App<Req extends Request = Request, Res extends Response = Response>
 
         const name = keys[i++]
         const fns = this.paramHandlers[name]
-        const match = params[name]
+        const match = Object.hasOwn(params, name) ? params[name] : undefined
 
         if (!fns || match === undefined) return nextParam()
 

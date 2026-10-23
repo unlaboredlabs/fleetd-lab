@@ -183,7 +183,7 @@ describe('app.param', () => {
     calls.length = 0
     await fetch('/1').expect(200, 'parent')
   })
-  it('ignores Object.prototype keys as param names', async () => {
+  it('handles a route param named constructor', async () => {
     const app = new App()
 
     app.get('/a/:constructor', (req, res) => void res.send(req.params.constructor))
@@ -196,10 +196,29 @@ describe('app.param', () => {
       calls.push(value)
       next()
     })
-    app.param('__proto__', (_req, _res, next) => next())
 
     await fetch('/a/y').expect(200, 'y')
     expect(calls).toEqual(['y'])
+  })
+  it('handles a route param named __proto__', async () => {
+    const app = new App()
+    let count = 0
+
+    app.get('/b/:__proto__', (_req, res) => void res.send(`${count}`))
+
+    const fetch = makeFetch(app.listen())
+    await fetch('/b/x').expect(200, '0')
+
+    expect(
+      app.param('__proto__', (_req, _res, next) => {
+        count++
+        next()
+      })
+    ).toBe(app)
+    expect(app.paramHandlers.__proto__).toHaveLength(1)
+
+    // the url params never carry a __proto__ key, so its handlers are not run with an inherited value
+    await fetch('/b/y').expect(200, '0')
   })
   it('runs handlers for each param of a route', async () => {
     const app = new App()
