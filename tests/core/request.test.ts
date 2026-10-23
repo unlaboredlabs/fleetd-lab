@@ -1,7 +1,7 @@
 import { Agent } from 'node:http'
 import { makeFetch } from 'supertest-fetch'
 import { afterEach, assert, describe, expect, it, vi } from 'vitest'
-import { getIP, type Request } from '../../packages/app/src'
+import { getHost, getIP, type Request } from '../../packages/app/src'
 import { App } from '../../packages/app/src/app'
 import * as req from '../../packages/req/src'
 import { InitAppAndTest } from '../../test_helpers/initAppAndTest'
@@ -774,6 +774,114 @@ describe('Request properties', () => {
       )
 
       await fetch('/').expect(200, 'hostname: example.com, port: undefined')
+    })
+    it('should not percent-decode the host header', async () => {
+      const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
+      vi.mocked(req.getRequestHeader).mockImplementation((r) => {
+        const defaultGetter = getRequestHeader(r)
+        return (header: string) => {
+          if (header === 'host') return '%41pi.example.com'
+          return defaultGetter(header)
+        }
+      })
+
+      const { fetch } = InitAppAndTest(
+        (req, res) => {
+          res.send(`hostname: ${req.hostname}`)
+        },
+        '/',
+        'GET',
+        options
+      )
+
+      await fetch('/').expect(200, 'hostname: %41pi.example.com')
+    })
+    it('should not fail the request when the host header is a lone percent sign', async () => {
+      const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
+      vi.mocked(req.getRequestHeader).mockImplementation((r) => {
+        const defaultGetter = getRequestHeader(r)
+        return (header: string) => {
+          if (header === 'host') return '%'
+          return defaultGetter(header)
+        }
+      })
+
+      const { fetch } = InitAppAndTest(
+        (req, res) => {
+          res.send(`hostname: ${req.hostname}`)
+        },
+        '/',
+        'GET',
+        options
+      )
+
+      await fetch('/').expect(200, 'hostname: %')
+    })
+    it('should lowercase the host header', async () => {
+      const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
+      vi.mocked(req.getRequestHeader).mockImplementation((r) => {
+        const defaultGetter = getRequestHeader(r)
+        return (header: string) => {
+          if (header === 'host') return 'API.Example.COM:8080'
+          return defaultGetter(header)
+        }
+      })
+
+      const { fetch } = InitAppAndTest(
+        (req, res) => {
+          res.send(`hostname: ${req.hostname}, port: ${req.port}`)
+        },
+        '/',
+        'GET',
+        options
+      )
+
+      await fetch('/').expect(200, 'hostname: api.example.com, port: 8080')
+    })
+    describe('getHost', () => {
+      const createReq = async (headers: Record<string, string>, remoteAddress = '127.0.0.1') => {
+        const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
+        const r = { headers, socket: { remoteAddress } } as unknown as Request
+        r.get = getRequestHeader(r)
+        return r
+      }
+
+      it('should not percent-decode the host header', async () => {
+        expect(getHost(await createReq({ host: '%41pi.example.com' }), 0)).toEqual({ hostname: '%41pi.example.com' })
+        expect(getHost(await createReq({ host: '%' }), 0)).toEqual({ hostname: '%' })
+      })
+      it('should not percent-decode the :authority header', async () => {
+        expect(getHost(await createReq({ ':authority': 'user@%41pi.example.com:8080' }), 0)).toEqual({
+          hostname: '%41pi.example.com',
+          port: 8080
+        })
+        expect(getHost(await createReq({ ':authority': '%' }), 0)).toEqual({ hostname: '%' })
+      })
+      it('should not percent-decode a trusted x-forwarded-host header', async () => {
+        const r = await createReq({ host: 'proxy.local', 'x-forwarded-host': '%41pi.example.com' })
+        expect(getHost(r, ['127.0.0.1'])).toEqual({ hostname: '%41pi.example.com' })
+        expect(getHost(await createReq({ 'x-forwarded-host': '%' }), ['127.0.0.1'])).toEqual({ hostname: '%' })
+      })
+      it('should ignore x-forwarded-host when the proxy is not trusted', async () => {
+        const r = await createReq({ host: 'proxy.local', 'x-forwarded-host': '%41pi.example.com' })
+        expect(getHost(r, 0)).toEqual({ hostname: 'proxy.local' })
+      })
+      it('should lowercase the host from every source', async () => {
+        expect(getHost(await createReq({ host: 'API.Example.COM:8080' }), 0)).toEqual({
+          hostname: 'api.example.com',
+          port: 8080
+        })
+        expect(getHost(await createReq({ ':authority': 'API.Example.COM' }), 0)).toEqual({
+          hostname: 'api.example.com'
+        })
+        expect(getHost(await createReq({ 'x-forwarded-host': 'API.Example.COM' }), ['127.0.0.1'])).toEqual({
+          hostname: 'api.example.com'
+        })
+      })
+      it('should keep IPv6 literals and ports intact', async () => {
+        expect(getHost(await createReq({ host: '[::1]:8080' }), 0)).toEqual({ hostname: '[::1]', port: 8080 })
+        expect(getHost(await createReq({ host: '[::1]' }), 0)).toEqual({ hostname: '[::1]' })
+      })
     })
     it('should return subdomains as empty array when hostname is undefined', async () => {
       const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
