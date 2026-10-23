@@ -1,7 +1,13 @@
-import { Agent } from 'node:http'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { Agent, request as httpRequest, type Server } from 'node:http'
+import { createServer as createHttpsServer, request as httpsRequest } from 'node:https'
+import type { AddressInfo } from 'node:net'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { makeFetch } from 'supertest-fetch'
 import { afterEach, assert, describe, expect, it, vi } from 'vitest'
-import { getIP, type Request } from '../../packages/app/src'
+import { getHost, getIP, getProtocol, type Request } from '../../packages/app/src'
 import { App } from '../../packages/app/src/app'
 import * as req from '../../packages/req/src'
 import { InitAppAndTest } from '../../test_helpers/initAppAndTest'
@@ -14,6 +20,53 @@ vi.mock<typeof req>(import('../../packages/req/src'), async (importOriginal) => 
     getRequestHeader: vi.fn(module.getRequestHeader)
   } satisfies typeof req
 })
+
+const generateSelfSignedCert = (): { key: Buffer; cert: Buffer } => {
+  const dir = mkdtempSync(join(tmpdir(), 'tinyhttp-tls-'))
+  try {
+    const key = join(dir, 'key.pem')
+    const cert = join(dir, 'cert.pem')
+    const curve = ['-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1']
+    const out = ['-keyout', key, '-out', cert]
+    execFileSync('openssl', ['req', '-x509', ...curve, '-nodes', ...out, '-days', '1', '-subj', '/CN=localhost'], {
+      stdio: 'ignore'
+    })
+    return { key: readFileSync(key), cert: readFileSync(cert) }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+// node:http(s) request, so headers such as Host are sent as given (fetch overrides Host)
+const get = (
+  request: typeof httpRequest | typeof httpsRequest,
+  server: Server,
+  headers: Record<string, string> = {}
+): Promise<{ status?: number; body: string }> => {
+  const { port } = server.address() as AddressInfo
+  return new Promise((resolve, reject) => {
+    request({ host: '127.0.0.1', port, path: '/', headers, agent: false, rejectUnauthorized: false }, (res) => {
+      let body = ''
+      res.setEncoding('utf8')
+      res.on('data', (chunk) => {
+        body += chunk
+      })
+      res.on('end', () => resolve({ status: res.statusCode, body }))
+    })
+      .on('error', reject)
+      .end()
+  })
+}
+
+const fetchHttps = async (app: App, headers: Record<string, string> = {}): Promise<string> => {
+  const server = createHttpsServer(generateSelfSignedCert(), app.attach)
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  try {
+    return (await get(httpsRequest, server, headers)).body
+  } finally {
+    server.close()
+  }
+}
 
 describe('Request properties', () => {
   afterEach(() => {
@@ -466,11 +519,9 @@ describe('Request properties', () => {
     })
     it('req.secure is true when connection is encrypted (HTTPS)', async () => {
       const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
-      // Mock req.secure by intercepting the request before extensions are applied
       vi.mocked(req.getRequestHeader).mockImplementation((r) => {
-        // Simulate a TLS connection by setting secure = true on the request
-        // This mimics what happens with HTTPS servers where the initial connection is secure
-        ;(r as Request & { secure: boolean }).secure = true
+        // simulate an HTTPS connection
+        ;((r as Request).socket as Request['socket'] & { encrypted: boolean }).encrypted = true
         return getRequestHeader(r)
       })
 
@@ -484,6 +535,36 @@ describe('Request properties', () => {
       )
 
       await fetch('/').expect(200, 'protocol: https, secure: true')
+    })
+    it('getProtocol derives the protocol from the socket', () => {
+      const reqWith = (encrypted: boolean, headers: Record<string, string> = {}) =>
+        ({ headers, socket: { remoteAddress: '127.0.0.1', encrypted } }) as unknown as Request
+
+      expect(getProtocol(reqWith(true), 0)).toBe('https')
+      expect(getProtocol(reqWith(false), 0)).toBe('http')
+      // X-Forwarded-Proto is only honored from a trusted proxy
+      expect(getProtocol(reqWith(true, { 'x-forwarded-proto': 'http' }), 0)).toBe('https')
+      expect(getProtocol(reqWith(false, { 'x-forwarded-proto': 'https' }), 0)).toBe('http')
+      expect(getProtocol(reqWith(true, { 'x-forwarded-proto': 'http' }), 'loopback')).toBe('http')
+      expect(getProtocol(reqWith(false, { 'x-forwarded-proto': 'https' }), 'loopback')).toBe('https')
+      expect(getProtocol(reqWith(true), 'loopback')).toBe('https')
+    })
+    it('req.protocol is https and req.secure is true on an HTTPS server', async () => {
+      vi.mocked(req.getRequestHeader).mockReset()
+      const app = new App({ settings: { networkExtensions: true } })
+      app.use((req, res) => void res.send(`protocol: ${req.protocol}, secure: ${req.secure}`))
+
+      expect(await fetchHttps(app)).toBe('protocol: https, secure: true')
+      // an untrusted X-Forwarded-Proto does not override the encrypted connection
+      expect(await fetchHttps(app, { 'X-Forwarded-Proto': 'http' })).toBe('protocol: https, secure: true')
+    })
+    it('req.protocol on an HTTPS server follows X-Forwarded-Proto from a trusted proxy', async () => {
+      vi.mocked(req.getRequestHeader).mockReset()
+      const app = new App({ settings: { networkExtensions: true, 'trust proxy': 'loopback' } })
+      app.use((req, res) => void res.send(`protocol: ${req.protocol}, secure: ${req.secure}`))
+
+      expect(await fetchHttps(app)).toBe('protocol: https, secure: true')
+      expect(await fetchHttps(app, { 'X-Forwarded-Proto': 'http' })).toBe('protocol: http, secure: false')
     })
     it('req.subdomains is empty by default', async () => {
       const { fetch } = InitAppAndTest(
@@ -634,6 +715,80 @@ describe('Request properties', () => {
 
       const response2 = await fetch('/', { headers: { Host: 'foo.bar:8080' } })
       expect([200, 500]).toContain(response2.status)
+    })
+    it('getHost does not percent-decode the host', () => {
+      const reqWith = (headers: Record<string, string>) => {
+        return {
+          headers,
+          socket: { remoteAddress: '127.0.0.1' },
+          get: (header: string) => headers[header.toLowerCase()]
+        } as unknown as Request
+      }
+
+      // Host
+      expect(getHost(reqWith({ host: '%41pi.example.com' }), 0)).toEqual({ hostname: '%41pi.example.com' })
+      expect(getHost(reqWith({ host: 'Foo%2Ebar.com:8080' }), 0)).toEqual({ hostname: 'foo%2ebar.com', port: 8080 })
+      expect(getHost(reqWith({ host: 'a%2Fb.com' }), 0)).toEqual({ hostname: 'a%2fb.com' })
+      expect(getHost(reqWith({ host: '%' }), 0)).toEqual({ hostname: '%' })
+      expect(getHost(reqWith({ host: 'API.Example.COM:443' }), 0)).toEqual({ hostname: 'api.example.com', port: 443 })
+      // IPv6 literals, including a percent-encoded zone id
+      expect(getHost(reqWith({ host: '[::1]:8080' }), 0)).toEqual({ hostname: '[::1]', port: 8080 })
+      expect(getHost(reqWith({ host: '[::1]' }), 0)).toEqual({ hostname: '[::1]' })
+      expect(getHost(reqWith({ host: '[FE80::1%25eth0]:3000' }), 0)).toEqual({
+        hostname: '[fe80::1%25eth0]',
+        port: 3000
+      })
+      // :authority (HTTP/2)
+      expect(getHost(reqWith({ ':authority': '%41pi.example.com:8443' }), 0)).toEqual({
+        hostname: '%41pi.example.com',
+        port: 8443
+      })
+      expect(getHost(reqWith({ ':authority': 'user@%' }), 0)).toEqual({ hostname: '%' })
+      expect(getHost(reqWith({ ':authority': '%41pi.example.com', host: '%41pi.example.com' }), 0)).toEqual({
+        hostname: '%41pi.example.com'
+      })
+      expect(() => getHost(reqWith({ ':authority': '%41pi.example.com', host: 'api.example.com' }), 0)).toThrow()
+      // X-Forwarded-Host, only from a trusted proxy
+      expect(getHost(reqWith({ 'x-forwarded-host': 'a%2Eb.com' }), 'loopback')).toEqual({ hostname: 'a%2eb.com' })
+      expect(getHost(reqWith({ 'x-forwarded-host': '%:8080' }), 'loopback')).toEqual({ hostname: '%', port: 8080 })
+      expect(getHost(reqWith({ 'x-forwarded-host': 'a%2Eb.com, c.com' }), 'loopback')?.hostname).toMatch(/^a%2eb\.com/)
+      expect(getHost(reqWith({ 'x-forwarded-host': '%, c.com' }), 'loopback')?.hostname).toMatch(/^%/)
+      expect(getHost(reqWith({ 'x-forwarded-host': '%41.com', host: 'b.com' }), 0)).toEqual({ hostname: 'b.com' })
+    })
+    it('req.hostname is not percent-decoded', async () => {
+      vi.mocked(req.getRequestHeader).mockReset()
+      const { server } = InitAppAndTest(
+        (req, res) => {
+          res.send(`hostname: ${req.hostname}`)
+        },
+        '/',
+        'GET',
+        options
+      )
+
+      expect(await get(httpRequest, server, { Host: '%41pi.example.com' })).toEqual({
+        status: 200,
+        body: 'hostname: %41pi.example.com'
+      })
+      expect(await get(httpRequest, server, { Host: '%' })).toEqual({ status: 200, body: 'hostname: %' })
+    })
+    it('req.hostname from a trusted x-forwarded-host is not percent-decoded', async () => {
+      vi.mocked(req.getRequestHeader).mockReset()
+      const { fetch, app } = InitAppAndTest(
+        (req, res) => {
+          res.send(`hostname: ${req.hostname}`)
+        },
+        '/',
+        'GET',
+        options
+      )
+      app.set('trust proxy', ['127.0.0.1', '::1', '::ffff:127.0.0.1'])
+
+      await fetch('/', { headers: { 'x-forwarded-host': '%41pi.example.com' } }).expect(
+        200,
+        'hostname: %41pi.example.com'
+      )
+      await fetch('/', { headers: { 'x-forwarded-host': '%' } }).expect(200, 'hostname: %')
     })
     it('should use x-forwarded-host when proxy is trusted', async () => {
       const { fetch, app } = InitAppAndTest(
