@@ -24,7 +24,8 @@ const trail = (x: string) => (x.charCodeAt(x.length - 1) === 47 ? x.substring(0,
 const mount = (fn: App | Handler) => (fn instanceof App ? fn.attach : fn)
 
 const applyHandler = <Req, Res>(h: Handler<Req, Res>, req: Req, res: Res, next: NextFunction) => {
-  if (h[Symbol.toStringTag] === 'AsyncFunction') return (h(req, res, next) as Promise<void>).catch(next)
+  if ((h as Handler<Req, Res> & { [Symbol.toStringTag]?: string })[Symbol.toStringTag] === 'AsyncFunction')
+    return (h(req, res, next) as Promise<void>).catch(next)
 
   try {
     h(req, res, next)
@@ -122,7 +123,7 @@ export class App<Req extends Request = Request, Res extends Response = Response>
     return this
   }
 
-  path() {
+  path(): string {
     return this.parent ? this.parent.path() + this.mountpath : ''
   }
 
@@ -237,7 +238,8 @@ export class App<Req extends Request = Request, Res extends Response = Response>
         path,
         regex,
         type: 'mw',
-        handler: mount(handlerFunctions[0]),
+        // No guard: use() without handlers leaves this empty and today's behavior relies on the undefined handler
+        handler: mount(handlerFunctions[0]!),
         handlers: handlerFunctions.slice(1).map(mount),
         fullPaths: handlerPaths
       })
@@ -257,9 +259,9 @@ export class App<Req extends Request = Request, Res extends Response = Response>
   #find(url: string, method: string, exclude: Middleware[]): Middleware<Req, Res>[] {
     const result: Middleware<Req, Res>[] = []
 
-    for (let i = 0, middlewares = this.middleware, isHead = method === 'HEAD'; i < middlewares.length; i++) {
-      const m = middlewares[i]
+    const isHead = method === 'HEAD'
 
+    for (const m of this.middleware) {
       // Regex is pre-compiled at registration time in pushMiddleware
       if (!m.regex?.pattern.test(url)) {
         continue
@@ -371,7 +373,8 @@ export class App<Req extends Request = Request, Res extends Response = Response>
         })
       }
 
-      void handle(mw[idx++], pathname)
+      // No guard: a mounted app rewritten to an unmatched url has nothing here; today's error path relies on it
+      void handle(mw[idx++]!, pathname)
     }
 
     const parentNext = next
