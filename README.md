@@ -24,3 +24,4 @@ The correctness of the TOML parsing and decoding is not yet entirely guaranteed 
 ## Contributing
 
 All kinds of contributions are welcome. Make sure to read the [CONTRIBUTING.md](CONTRIBUTING.md) first!
+
