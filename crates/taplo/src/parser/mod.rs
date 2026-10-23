@@ -567,10 +567,17 @@ impl<'p> Parser<'p> {
                 }
             }
             FLOAT => {
-                if self.lexer.slice().starts_with('0') {
-                    self.error("zero-padded numbers are not allowed")
-                } else if self.lexer.slice().starts_with('+') {
+                // Something like `01.23` is a dotted key of bare keys, but
+                // parts of floats such as `+` or `e+` are not allowed in keys.
+                if self.lexer.slice().starts_with('+') {
                     Err(())
+                } else if !self
+                    .lexer
+                    .slice()
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+                {
+                    self.error("expected identifier")
                 } else {
                     for (i, s) in self.lexer.slice().split('.').enumerate() {
                         if i != 0 {

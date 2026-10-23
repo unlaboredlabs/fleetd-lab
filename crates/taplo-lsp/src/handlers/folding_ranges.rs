@@ -8,7 +8,7 @@ use taplo::{
     syntax::{
         SyntaxElement,
         SyntaxKind::{
-            ARRAY, COMMENT, MULTI_LINE_STRING, MULTI_LINE_STRING_LITERAL, NEWLINE,
+            ARRAY, COMMENT, INLINE_TABLE, MULTI_LINE_STRING, MULTI_LINE_STRING_LITERAL, NEWLINE,
             TABLE_ARRAY_HEADER, TABLE_HEADER, WHITESPACE,
         },
         SyntaxNode,
@@ -102,7 +102,8 @@ pub fn create_folding_ranges(syntax: &SyntaxNode, mapper: &Mapper) -> Vec<Foldin
                     SyntaxElement::Node(n) => {
                         for d in n.descendants_with_tokens() {
                             match d.kind() {
-                                ARRAY => {
+                                // Inline tables can span multiple lines since TOML 1.1.
+                                ARRAY | INLINE_TABLE => {
                                     if d.as_node()
                                         .unwrap()
                                         .descendants_with_tokens()
@@ -220,4 +221,39 @@ pub fn create_folding_ranges(syntax: &SyntaxNode, mapper: &Mapper) -> Vec<Foldin
     }
 
     folding_ranges
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn folded_regions(src: &str) -> Vec<(u32, u32)> {
+        let syntax = taplo::parser::parse(src).into_syntax();
+        let mapper = Mapper::new_utf16(src, false);
+
+        create_folding_ranges(&syntax, &mapper)
+            .into_iter()
+            .filter(|r| r.kind == Some(FoldingRangeKind::Region))
+            .map(|r| (r.start_line, r.end_line))
+            .collect()
+    }
+
+    #[test]
+    fn multi_line_inline_tables_are_folded() {
+        let src = r#"server = {
+  host = "localhost", # where it listens
+  tls = {
+    cert = "a.pem",
+  },
+}
+single = { a = 1 }
+"#;
+
+        assert_eq!(folded_regions(src), vec![(0, 5), (2, 4)]);
+    }
+
+    #[test]
+    fn multi_line_arrays_are_folded() {
+        assert_eq!(folded_regions("a = [\n  1,\n]\nb = [1]\n"), vec![(0, 2)]);
+    }
 }

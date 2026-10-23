@@ -76,15 +76,19 @@ impl Node {
 
                     let entries = table.entries().read();
 
-                    // We make two runs to put tables and array of tables last.
-                    // No tables:
-                    for (key, node) in entries.iter().filter(|(_, n)| {
-                        !n.is_table()
-                            && !n
-                                .as_array()
+                    // Inline tables are values just like inline arrays.
+                    let is_section = |n: &Node| {
+                        n.as_table()
+                            .map(|t| t.inner.kind != TableKind::Inline)
+                            .unwrap_or(false)
+                            || n.as_array()
                                 .map(|n| n.inner.kind == ArrayKind::Tables)
                                 .unwrap_or(false)
-                    }) {
+                    };
+
+                    // We make two runs to put tables and array of tables last.
+                    // No tables:
+                    for (key, node) in entries.iter().filter(|(_, n)| !is_section(n)) {
                         node.to_toml_impl(
                             f,
                             key.clone().into(),
@@ -96,12 +100,7 @@ impl Node {
                     }
 
                     // Tables only:
-                    for (key, node) in entries.iter().filter(|(_, n)| {
-                        n.is_table()
-                            || n.as_array()
-                                .map(|n| n.inner.kind == ArrayKind::Tables)
-                                .unwrap_or(false)
-                    }) {
+                    for (key, node) in entries.iter().filter(|(_, n)| is_section(n)) {
                         node.to_toml_impl(
                             f,
                             parent_keys.join(key.clone()),
@@ -157,7 +156,7 @@ impl Node {
                 } else {
                     let escaped = escape(s.value());
 
-                    if prefer_single_quote && escaped == s.value() {
+                    if prefer_single_quote && escaped == s.value() && !s.value().contains('\'') {
                         write!(f, "'{}'", s.value())?;
                     } else {
                         write!(f, r#""{escaped}""#)?;

@@ -1203,3 +1203,537 @@ sort_me_not = ["3", "2", "1"]
 
     assert_format!(expected, &formatted);
 }
+
+#[test]
+fn multi_line_inline_table_is_kept() {
+    let src = r#"server = {
+  host = "localhost", # where it listens
+  port = 8080,
+  tls = { cert = "a.pem", key = "a.key" },
+}
+"#;
+
+    let formatted = crate::formatter::format(src, Options::default());
+    assert_format!(src, &formatted);
+}
+
+#[test]
+fn multi_line_inline_table_layout() {
+    let src = r#"
+[table]
+  server = { host = "localhost", # where it listens
+        port = 8080
+    , tls = {
+cert = "a.pem", key = "a.key" }, empty = {
+}, one_line = { a = 1, b = 2, }, }
+"#;
+
+    let expected = r#"
+[table]
+server = {
+  host = "localhost", # where it listens
+  port = 8080,
+  tls = {
+    cert = "a.pem",
+    key = "a.key",
+  },
+  empty = {},
+  one_line = { a = 1, b = 2 },
+}
+"#;
+
+    let formatted = crate::formatter::format(src, Options::default());
+    assert_format!(expected, &formatted);
+
+    let formatted = crate::formatter::format(expected, Options::default());
+    assert_format!(expected, &formatted);
+}
+
+#[test]
+fn multi_line_inline_table_without_trailing_comma() {
+    let src = r#"
+a = {
+  b = 1,
+  c = [
+    1,
+    2,
+  ],
+  # comment
+}
+"#;
+
+    let expected = r#"
+a = {
+  b = 1,
+  c = [
+    1,
+    2
+  ]
+  # comment
+}
+"#;
+
+    let formatted = crate::formatter::format(
+        src,
+        Options {
+            array_trailing_comma: false,
+            array_auto_collapse: false,
+            ..Default::default()
+        },
+    );
+    assert_format!(expected, &formatted);
+}
+
+#[test]
+fn single_line_inline_table_trailing_comma() {
+    let src = r#"
+a = { b = 1, c = 2, }
+"#;
+
+    let expected = r#"
+a = { b = 1, c = 2 }
+"#;
+
+    let formatted = crate::formatter::format(src, Options::default());
+    assert_format!(expected, &formatted);
+}
+
+#[test]
+fn multi_line_inline_table_comments() {
+    let src = r#"
+a = { # after the brace
+	# before b
+	b = 1, # after b
+
+
+	# before c
+
+
+	c = 2 # after c
+	, # after the comma
+	d = [1, # in the array
+	], # after d
+	e = 3
+	# before the closing brace
+} # after the closing brace
+"#;
+
+    let expected = r#"
+a = { # after the brace
+  # before b
+  b = 1, # after b
+
+
+  # before c
+
+
+  c = 2, # after c
+  # after the comma
+  d = [
+    1, # in the array
+  ], # after d
+  e = 3,
+  # before the closing brace
+} # after the closing brace
+"#;
+
+    let formatted = crate::formatter::format(src, Options::default());
+    assert_format!(expected, &formatted);
+
+    let formatted = crate::formatter::format(expected, Options::default());
+    assert_format!(expected, &formatted);
+}
+
+#[test]
+fn multi_line_inline_table_comment_alignment() {
+    let src = r#"
+a = {
+  host = "localhost", # where it listens
+  port = 8080, # port
+  tls = { cert = "a.pem", key = "a.key" },
+}
+"#;
+
+    let expected = r#"
+a = {
+  host = "localhost", # where it listens
+  port = 8080,        # port
+  tls = { cert = "a.pem", key = "a.key" },
+}
+"#;
+
+    let formatted = crate::formatter::format(src, Options::default());
+    assert_format!(expected, &formatted);
+
+    let expected_aligned_entries = r#"
+a = {
+  host = "localhost", # where it listens
+  port = 8080,        # port
+  tls  = { cert = "a.pem", key = "a.key" },
+}
+"#;
+
+    let formatted = crate::formatter::format(
+        src,
+        Options {
+            align_entries: true,
+            ..Default::default()
+        },
+    );
+    assert_format!(expected_aligned_entries, &formatted);
+
+    let formatted = crate::formatter::format(
+        src,
+        Options {
+            align_comments: false,
+            ..Default::default()
+        },
+    );
+    assert_format!(src, &formatted);
+}
+
+#[test]
+fn multi_line_inline_table_indentation() {
+    let src = r#"
+[a]
+b = [{ c = {
+d = 1 } }, { e = 2 }]
+f = { g = [ {
+  h = 1
+} ] }
+"#;
+
+    let expected = r#"
+[a]
+	b = [
+		{
+			c = {
+				d = 1,
+			},
+		},
+		{ e = 2 },
+	]
+	f = {
+		g = [
+			{
+				h = 1,
+			},
+		],
+	}
+"#;
+
+    let formatted = crate::formatter::format(
+        src,
+        Options {
+            indent_entries: true,
+            indent_string: "\t".into(),
+            ..Default::default()
+        },
+    );
+    assert_format!(expected, &formatted);
+}
+
+#[test]
+fn multi_line_inline_table_reorder() {
+    let src = r#"
+a = {
+  d = 4,
+  c = 3, # c
+
+  b = 2,
+  a.z = 1,
+  a.y = 0,
+}
+"#;
+
+    let expected = r#"
+a = {
+  c = 3, # c
+  d = 4,
+
+  a.y = 0,
+  a.z = 1,
+  b = 2,
+}
+"#;
+
+    let formatted = crate::formatter::format(
+        src,
+        Options {
+            reorder_inline_tables: true,
+            ..Default::default()
+        },
+    );
+    assert_format!(expected, &formatted);
+
+    // Inline tables are not affected by `reorder_keys`.
+    let formatted = crate::formatter::format(
+        expected,
+        Options {
+            reorder_keys: true,
+            ..Default::default()
+        },
+    );
+    assert_format!(expected, &formatted);
+}
+
+#[test]
+fn multi_line_inline_table_long_entries() {
+    let src = r#"
+a = {
+  b = ["aaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbb", "cccccccccccccccccccc", "dddd"],
+  c = 1,
+}
+"#;
+
+    let expected = r#"
+a = {
+  b = [
+    "aaaaaaaaaaaaaaaaaaaa",
+    "bbbbbbbbbbbbbbbbbbbb",
+    "cccccccccccccccccccc",
+    "dddd",
+  ],
+  c = 1,
+}
+"#;
+
+    let formatted = crate::formatter::format(src, Options::default());
+    assert_format!(expected, &formatted);
+}
+
+#[test]
+fn toml_1_1_values_are_kept() {
+    let src = r#"
+esc = "\e[0m\x41"
+t = 14:15
+dt = 2010-02-03 14:15
+odt = 1979-05-27T07:32Z
+"#;
+
+    let formatted = crate::formatter::format(src, Options::default());
+    assert_format!(src, &formatted);
+}
+
+#[test]
+fn array_comments_before_and_after_comma() {
+    let src = r#"
+arr = [ 1,# a
+2# b
+,# c
+3]
+"#;
+
+    let expected = r#"
+arr = [
+  1, # a
+  2, # b
+  # c
+  3,
+]
+"#;
+
+    let formatted = crate::formatter::format(src, Options::default());
+    assert_format!(expected, &formatted);
+
+    let formatted = crate::formatter::format(expected, Options::default());
+    assert_format!(expected, &formatted);
+}
+
+#[test]
+fn no_blank_lines_is_idempotent() {
+    let src = r#"
+a = 1 # a
+bb = 2
+
+ccc = 3 # c
+"#;
+
+    let expected = r#"
+a = 1   # a
+bb = 2
+ccc = 3 # c
+"#;
+
+    let options = Options {
+        allowed_blank_lines: 0,
+        ..Default::default()
+    };
+
+    let formatted = crate::formatter::format(src, options.clone());
+    assert_format!(expected, &formatted);
+
+    let formatted = crate::formatter::format(expected, options);
+    assert_format!(expected, &formatted);
+}
+
+/// TOML 1.1 documents (and some tricky TOML 1.0 ones) that are formatted with various options,
+/// the result must be valid with the same data and comments, and formatting it again must not
+/// change it.
+#[test]
+fn formatting_preserves_documents() {
+    const DOCUMENTS: &[&str] = &[
+        r##"
+# TOML 1.1 supports newlines in inline tables and trailing commas.
+
+trailing-comma-1 = {#comment
+	# comment
+	c = 1,#comment
+	#comment
+}#comment
+trailing-comma-2 = { c = 1, }#comment
+
+tbl-1 = {#comment
+	hello = "world",#comment
+	1     = 2,#comment
+	arr   = [1,#comment
+	         2,#comment
+	         3,#comment
+	        ],#comment
+	tbl = {#comment
+		 k = 1,#comment
+	}#comment
+}#comment
+
+tbl-2 = {#comment
+	k = """
+	Hello
+	"""#comment
+}#comment
+
+no-newline-before-brace = {
+a = 1,
+b = 2}
+"##,
+        r##"
+[section]
+server = { # after brace
+  host = "localhost", # where it listens
+
+  # standalone
+
+
+  port = 8080,
+  tls = { cert = "a.pem", key = "a.key" },
+  nested = {
+    deeper = {
+      x = 1, y = [1, 2,
+        3], # arr comment
+    },  # nested comment
+  }
+  , # comma comment
+} # after close
+
+arr = [ { a = 1, b = {
+  c = 2 } }, { d = 3 } ]
+
+[[aot]]
+empty = {
+}
+empty_comment = { # only comment
+}
+dotted = {
+  a.b.c = 1,
+  a.d = 2,
+  "quoted key" = 'lit',
+  ml = """
+multi
+line""", ml2 = '''x''' }
+long = { aaaaaaaaaaaaaaaaaaaa = ["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "cccccccccccccccccccccccccccccccc", "ddddddd"],
+  z = 1 }
+"##,
+        "a = {\r\n  b = 1, # c\r\n\r\n  c = { d = 1,\r\n  },\r\n}\r\nt = 14:15\r\nd = 1979-05-27 07:32Z\r\ns = \"\\e\\x41\"\r\n",
+        r##"
+one = "11"  #cmt
+two = "22#"
+
+four = """# no comment
+#also not comment""" #is_comment
+arr4 = [
+  1,# 9, 9,
+2#,9
+,#9
+3#]
+,4]
+arr5 = [[[[#["#"],
+["#"]]]]#]
+]
+tbl1 = { "#" = '}#'}#}}
+"##,
+    ];
+
+    let option_sets = [
+        Options::default(),
+        Options {
+            align_entries: true,
+            compact_entries: true,
+            column_width: 20,
+            ..Default::default()
+        },
+        Options {
+            align_comments: false,
+            array_trailing_comma: false,
+            array_auto_collapse: false,
+            compact_arrays: false,
+            compact_inline_tables: true,
+            ..Default::default()
+        },
+        Options {
+            align_single_comments: false,
+            array_auto_expand: false,
+            inline_table_expand: false,
+            column_width: 1,
+            ..Default::default()
+        },
+        Options {
+            indent_tables: true,
+            indent_entries: true,
+            indent_string: "\t".into(),
+            reorder_keys: true,
+            reorder_inline_tables: true,
+            crlf: true,
+            ..Default::default()
+        },
+        Options {
+            allowed_blank_lines: 0,
+            trailing_newline: false,
+            align_entries: true,
+            ..Default::default()
+        },
+    ];
+
+    fn data(src: &str) -> serde_json::Value {
+        let p = crate::parser::parse(src);
+        assert!(p.errors.is_empty(), "{:#?}\n{src}", p.errors);
+        let dom = p.into_dom();
+        assert!(dom.validate().is_ok(), "{src}");
+        serde_json::to_value(&dom).unwrap()
+    }
+
+    fn comments(src: &str) -> Vec<String> {
+        let mut comments = crate::parser::parse(src)
+            .into_syntax()
+            .descendants_with_tokens()
+            .filter(|t| t.kind() == crate::syntax::SyntaxKind::COMMENT)
+            .map(|t| t.to_string())
+            .collect::<Vec<_>>();
+        comments.sort();
+        comments
+    }
+
+    for src in DOCUMENTS {
+        for options in &option_sets {
+            let formatted = crate::formatter::format(src, options.clone());
+
+            assert_eq!(data(src), data(&formatted), "{options:?}\n{formatted}");
+            assert_eq!(
+                comments(src),
+                comments(&formatted),
+                "{options:?}\n{formatted}"
+            );
+
+            let formatted_again = crate::formatter::format(&formatted, options.clone());
+            assert_format!(formatted.as_str(), &formatted_again);
+        }
+    }
+}

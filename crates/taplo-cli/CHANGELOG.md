@@ -1,5 +1,15 @@
 # Change Log
 
+## Unreleased
+
+### Features
+
+- Support TOML 1.1.0 in all commands ([#332](https://github.com/tamasfe/taplo/issues/332))
+
+### Fixes
+
+- Fix the output of date-time values in the `toml-test` decoder
+
 ## 0.10.0
 
 ### Fixes

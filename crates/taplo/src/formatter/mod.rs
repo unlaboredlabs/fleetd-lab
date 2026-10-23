@@ -59,7 +59,7 @@ create_options!(
         pub align_single_comments: bool,
 
         /// Put trailing commas for multiline
-        /// arrays.
+        /// arrays and inline tables.
         pub array_trailing_comma: bool,
 
         /// Automatically expand arrays to multiple lines once they
@@ -188,6 +188,19 @@ impl Options {
 
     fn newlines(&self, count: usize) -> impl Iterator<Item = &'static str> {
         repeat(self.newline()).take(usize::min(count, self.allowed_blank_lines + 1))
+    }
+
+    /// The amount of consecutive newlines that are kept.
+    ///
+    /// Blank lines separate groups of entries (for alignment and reordering),
+    /// if they are not kept, they cannot separate groups either, otherwise
+    /// formatting the output again would give a different result.
+    fn effective_newline_count(&self, newline_count: usize) -> usize {
+        if self.allowed_blank_lines == 0 {
+            usize::min(newline_count, 1)
+        } else {
+            newline_count
+        }
     }
 
     fn should_align_comments(&self, comment_count: usize) -> bool {
@@ -564,6 +577,8 @@ fn format_root(node: SyntaxNode, options: &Options, context: &Context) -> String
                         }
                     }
 
+                    newline_count = scoped_options.effective_newline_count(newline_count);
+
                     if newline_count > 1 {
                         add_comments(
                             &mut comment_group,
@@ -630,25 +645,75 @@ fn add_entries(
     options: &Options,
     context: &Context,
 ) -> bool {
+    add_entries_impl(
+        entry_group,
+        None,
+        options.reorder_keys,
+        formatted,
+        options,
+        context,
+    )
+}
+
+/// Add entries of a multi-line inline table to the formatted string.
+///
+/// The commas are assigned to the entries in order,
+/// after the entries were reordered.
+fn add_inline_table_entries(
+    entry_group: &mut Vec<FormattedEntry>,
+    commas_group: &mut Vec<bool>,
+    formatted: &mut String,
+    options: &Options,
+    context: &Context,
+) -> bool {
+    add_entries_impl(
+        entry_group,
+        Some(commas_group),
+        options.reorder_inline_tables,
+        formatted,
+        options,
+        context,
+    )
+}
+
+fn add_entries_impl(
+    entry_group: &mut Vec<FormattedEntry>,
+    commas_group: Option<&mut Vec<bool>>,
+    reorder: bool,
+    formatted: &mut String,
+    options: &Options,
+    context: &Context,
+) -> bool {
     let were_entries = !entry_group.is_empty();
 
-    if options.reorder_keys {
+    if reorder {
         entry_group.sort();
     }
+
+    // Comments in multi-line inline tables are only aligned with each other,
+    // a long entry without a comment does not push them further.
+    let is_inline_table = commas_group.is_some();
+
+    let commas = match commas_group {
+        Some(commas) => std::mem::take(commas),
+        None => Vec::new(),
+    };
+    let has_comma = |idx: usize| commas.get(idx).copied().unwrap_or(false);
 
     let indent_chars_count = context.indent_level * options.indent_string.chars().count();
 
     // We check for too long lines, and try to expand them if possible.
     // We don't take vertical alignment into account for simplicity.
     if options.array_auto_expand {
-        for entry in entry_group.iter_mut() {
+        for (entry_idx, entry) in entry_group.iter_mut().enumerate() {
             let comment_chars_count = entry
                 .comment
                 .as_ref()
                 .map(
                     |c| c.chars().count() + 1, // account for the separator ' ' as well
                 )
-                .unwrap_or(0);
+                .unwrap_or(0)
+                + usize::from(has_comma(entry_idx));
 
             let line_count = entry.value.split('\n').count();
 
@@ -704,8 +769,13 @@ fn add_entries(
     // Transform the entries into generic rows that can be aligned.
     let rows = entry_group
         .drain(0..)
-        .map(|e| {
+        .enumerate()
+        .map(|(entry_idx, mut e)| {
             let mut row = Vec::with_capacity(5);
+
+            if has_comma(entry_idx) {
+                e.value += ",";
+            }
 
             row.push(context.indent(options).collect::<String>());
             row.push(e.key);
@@ -739,6 +809,8 @@ fn add_entries(
         &rows,
         options.newline(),
         " ",
+        // The comment column.
+        is_inline_table.then_some(4),
     );
 
     were_entries
@@ -860,7 +932,11 @@ fn format_inline_table(
     node: SyntaxNode,
     options: &Options,
     context: &Context,
-) -> impl FormattedItem {
+) -> (SyntaxElement, String, Option<String>) {
+    if is_inline_table_multiline(&node) {
+        return format_inline_table_multiline(node, options, context);
+    }
+
     let mut formatted = String::new();
     let mut comment = None;
 
@@ -944,13 +1020,188 @@ fn format_inline_table(
 
     (node.into(), formatted, comment)
 }
+
+/// Format an inline table that spans multiple lines (TOML 1.1).
+///
+/// It is laid out like a multi-line array: one entry per line indented one level deeper,
+/// with the closing brace on its own line.
+fn format_inline_table_multiline(
+    node: SyntaxNode,
+    options: &Options,
+    context: &Context,
+) -> (SyntaxElement, String, Option<String>) {
+    let mut formatted = String::new();
+
+    // Every entry is checked separately for the column width.
+    let mut context = context.clone();
+    context.force_multiline = false;
+    let context = &context;
+
+    let mut inner_context = context.clone();
+    inner_context.indent_level += 1;
+
+    // We use the same strategy as for entries, refer to [`format_root`].
+    let mut skip_newlines = 0;
+
+    let mut entry_group: Vec<FormattedEntry> = Vec::new();
+    let mut commas_group: Vec<bool> = Vec::new();
+
+    let entry_count = node.children().count();
+    let has_comments = node.children_with_tokens().any(|c| c.kind() == COMMENT);
+
+    let mut dangling_newline_count = 0;
+
+    let mut entry_index = 0;
+    for c in node.children_with_tokens() {
+        match c {
+            NodeOrToken::Node(n) => match n.kind() {
+                ENTRY => {
+                    if formatted.ends_with('{') {
+                        formatted += options.newline();
+                    }
+
+                    entry_group.push(format_entry(n, options, &inner_context));
+                    commas_group
+                        .push(entry_index < entry_count - 1 || options.array_trailing_comma);
+                    skip_newlines += 1;
+
+                    entry_index += 1;
+                }
+                _ => {
+                    if cfg!(debug_assertions) {
+                        unreachable!()
+                    }
+                }
+            },
+            NodeOrToken::Token(t) => match t.kind() {
+                BRACE_START => {
+                    formatted += "{";
+                }
+                BRACE_END => {
+                    if entry_count == 0 && !has_comments {
+                        formatted += "}";
+                        continue;
+                    }
+
+                    add_inline_table_entries(
+                        &mut entry_group,
+                        &mut commas_group,
+                        &mut formatted,
+                        options,
+                        &inner_context,
+                    );
+
+                    if !formatted.ends_with('\n') {
+                        formatted += options.newline();
+                    }
+
+                    formatted.extend(context.indent(options));
+                    formatted += "}";
+                }
+                NEWLINE => {
+                    if entry_count == 0 && !has_comments {
+                        continue;
+                    }
+
+                    let mut newline_count = t.text().newline_count();
+
+                    match dangling_newlines(t.clone()) {
+                        Some(dnl) => {
+                            dangling_newline_count += dnl;
+                            continue;
+                        }
+                        None => {
+                            newline_count += dangling_newline_count;
+                            dangling_newline_count = 0;
+                        }
+                    }
+
+                    newline_count = options.effective_newline_count(newline_count);
+
+                    if newline_count > 1 {
+                        add_inline_table_entries(
+                            &mut entry_group,
+                            &mut commas_group,
+                            &mut formatted,
+                            options,
+                            &inner_context,
+                        );
+                        skip_newlines = 0;
+                    }
+
+                    formatted.extend(options.newlines(newline_count.saturating_sub(skip_newlines)));
+                }
+                COMMENT => {
+                    let newline_before = t
+                        .siblings_with_tokens(rowan::Direction::Prev)
+                        .skip(1)
+                        .find(|s| s.kind() != WHITESPACE)
+                        .map(|s| s.kind() == NEWLINE)
+                        .unwrap_or(false);
+
+                    if let Some(entry) = entry_group.last_mut() {
+                        if !newline_before && entry.comment.is_none() {
+                            // It's actually a trailing comment, so we add it to the last entry.
+                            entry.comment = Some(t.text().to_string());
+                            continue;
+                        }
+                    }
+
+                    if add_inline_table_entries(
+                        &mut entry_group,
+                        &mut commas_group,
+                        &mut formatted,
+                        options,
+                        &inner_context,
+                    ) {
+                        formatted += options.newline();
+                        skip_newlines = 0;
+                    }
+
+                    if formatted.ends_with('{') {
+                        formatted += " ";
+                        formatted += t.text();
+                    } else {
+                        formatted.extend(inner_context.indent(options));
+                        formatted += t.text();
+                    }
+                }
+                _ => {}
+            },
+        }
+    }
+
+    (node.into(), formatted, None)
+}
+
+/// Check whether an inline table or any inline table inside it spans multiple lines.
+///
+/// Newlines inside nested arrays do not count, those were allowed before TOML 1.1 as well.
+fn is_inline_table_multiline(node: &SyntaxNode) -> bool {
+    node.descendants_with_tokens()
+        .any(|t| t.kind() == NEWLINE && is_inline_table_newline(&t))
+}
+
+/// Whether the newline belongs directly to an inline table rather than an array.
+fn is_inline_table_newline(newline: &SyntaxElement) -> bool {
+    newline
+        .parent()
+        .and_then(|p| {
+            p.ancestors()
+                .find(|n| matches!(n.kind(), ARRAY | INLINE_TABLE))
+        })
+        .is_some_and(|n| n.kind() == INLINE_TABLE)
+}
+
 // Check whether the array spans multiple lines in its current form.
 fn is_array_multiline(node: &SyntaxNode) -> bool {
     node.descendants_with_tokens().any(|n| n.kind() == NEWLINE)
 }
 
 fn can_collapse_array(node: &SyntaxNode) -> bool {
-    !node.descendants_with_tokens().any(|n| n.kind() == COMMENT)
+    !node
+        .descendants_with_tokens()
+        .any(|n| n.kind() == COMMENT || (n.kind() == NEWLINE && is_inline_table_newline(&n)))
 }
 
 fn format_array(node: SyntaxNode, options: &Options, context: &Context) -> impl FormattedItem {
@@ -1025,6 +1276,7 @@ fn format_array(node: SyntaxNode, options: &Options, context: &Context) -> impl 
             &rows,
             options.newline(),
             " ",
+            None,
         );
 
         were_values
@@ -1113,6 +1365,8 @@ fn format_array(node: SyntaxNode, options: &Options, context: &Context) -> impl 
                         }
                     }
 
+                    newline_count = options.effective_newline_count(newline_count);
+
                     if newline_count > 1 {
                         add_values(
                             &mut value_group,
@@ -1133,10 +1387,12 @@ fn format_array(node: SyntaxNode, options: &Options, context: &Context) -> impl 
                         .map(|s| s.kind() == NEWLINE)
                         .unwrap_or(false);
 
-                    if !newline_before && !value_group.is_empty() {
-                        // It's actually trailing comment, so we add it to the last value.
-                        value_group.last_mut().unwrap().1 = Some(t.text().to_string());
-                        continue;
+                    if let Some(last_value) = value_group.last_mut() {
+                        if !newline_before && last_value.1.is_none() {
+                            // It's actually trailing comment, so we add it to the last value.
+                            last_value.1 = Some(t.text().to_string());
+                            continue;
+                        }
                     }
 
                     if add_values(
@@ -1230,12 +1486,16 @@ impl NewlineCount for &str {
 }
 
 // FIXME(docs)
+//
+// If `sparse_column` is set, that column (e.g. trailing comments) is only aligned
+// between the rows that have it.
 fn format_rows<R, S>(
     align_range: Range<usize>,
     separator_range: Range<usize>,
     rows: &[R],
     newline: &str,
     separator: &str,
+    sparse_column: Option<usize>,
 ) -> String
 where
     R: AsRef<[S]>,
@@ -1252,15 +1512,19 @@ where
     let diff_widths = |range: Range<usize>, row: &R| -> usize {
         let mut max_width = 0_usize;
 
-        for row in rows {
-            let row_len = row.as_ref().len();
+        for other_row in rows {
+            let row_len = other_row.as_ref().len();
+
+            if sparse_column.is_some_and(|col| range.end == col && row_len <= col) {
+                continue;
+            }
 
             let range =
                 cmp::min(range.start, row_len.saturating_sub(1))..cmp::min(range.end, row_len);
 
             max_width = cmp::max(
                 max_width,
-                row.as_ref()[range]
+                other_row.as_ref()[range]
                     .iter()
                     .map(|s| s.as_ref().chars().count())
                     .sum(),

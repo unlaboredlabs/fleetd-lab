@@ -639,69 +639,31 @@ wrap_node! {
 impl DateTime {
     pub fn value(&self) -> DateTimeValue {
         *self.inner.value.get_or_init(|| {
-            if let Some(token) = self.syntax().and_then(|s| s.as_token()) {
-                let mut text = token.text().to_string();
-
-                // SAFETY: we're replacing single-byte characters.
-                unsafe {
-                    for b in text.as_bytes_mut() {
-                        if *b == b' ' || *b == b't' {
-                            *b = b'T';
-                        } else if *b == b'z' {
-                            *b = b'Z';
-                        } else if *b == b',' {
-                            *b = b'.';
-                        }
-                    }
-                }
-
-                match token.kind() {
+            self.syntax()
+                .and_then(|s| s.as_token())
+                .and_then(|token| match token.kind() {
                     SyntaxKind::DATE_TIME_OFFSET => {
-                        if let Ok(d) = time::OffsetDateTime::parse(
-                            &text,
-                            &time::format_description::well_known::Rfc3339,
-                        ) {
-                            return DateTimeValue::OffsetDateTime(d);
-                        }
+                        let (date, time, offset) = parse_date_time(token.text())?;
+                        Some(DateTimeValue::OffsetDateTime(
+                            time::PrimitiveDateTime::new(date, time).assume_offset(offset?),
+                        ))
                     }
                     SyntaxKind::DATE_TIME_LOCAL => {
-                        let desc = if text.contains('.') {
-                            format_description!(
-                                "[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond]"
-                            )
-                        } else {
-                            format_description!("[year]-[month]-[day]T[hour]:[minute]:[second]")
-                        };
-
-                        if let Ok(d) = time::PrimitiveDateTime::parse(&text, &desc) {
-                            return DateTimeValue::LocalDateTime(d);
-                        }
+                        let (date, time, _) = parse_date_time(token.text())?;
+                        Some(DateTimeValue::LocalDateTime(time::PrimitiveDateTime::new(
+                            date, time,
+                        )))
                     }
-                    SyntaxKind::DATE => {
-                        if let Ok(d) =
-                            time::Date::parse(&text, &format_description!("[year]-[month]-[day]"))
-                        {
-                            return DateTimeValue::Date(d);
-                        }
-                    }
-                    SyntaxKind::TIME => {
-                        let desc = if text.contains('.') {
-                            format_description!("[hour]:[minute]:[second].[subsecond]")
-                        } else {
-                            format_description!("[hour]:[minute]:[second]")
-                        };
-
-                        if let Ok(d) = time::Time::parse(&text, &desc) {
-                            return DateTimeValue::Time(d);
-                        }
-                    }
-                    _ => {}
-                }
-
-                DateTimeValue::OffsetDateTime(time::OffsetDateTime::UNIX_EPOCH)
-            } else {
-                DateTimeValue::OffsetDateTime(time::OffsetDateTime::UNIX_EPOCH)
-            }
+                    SyntaxKind::DATE => parse_date(token.text()).map(DateTimeValue::Date),
+                    SyntaxKind::TIME => match parse_time(token.text())? {
+                        (time, "") => Some(DateTimeValue::Time(time)),
+                        _ => None,
+                    },
+                    _ => None,
+                })
+                .unwrap_or(DateTimeValue::OffsetDateTime(
+                    time::OffsetDateTime::UNIX_EPOCH,
+                ))
         })
     }
 
@@ -712,6 +674,90 @@ impl DateTime {
             Err(self.errors())
         }
     }
+}
+
+/// Parse a `full-date` (`YYYY-MM-DD`).
+fn parse_date(s: &str) -> Option<time::Date> {
+    let year = s.get(0..4)?.parse().ok()?;
+    let month: u8 = s.get(5..7)?.parse().ok()?;
+    let day = s.get(8..10)?.parse().ok()?;
+
+    if s.len() != 10 || s.get(4..5)? != "-" || s.get(7..8)? != "-" {
+        return None;
+    }
+
+    time::Date::from_calendar_date(year, month.try_into().ok()?, day).ok()
+}
+
+/// Parse a `partial-time` (`HH:MM[:SS[.fraction]]`), and return the remaining text.
+///
+/// The seconds are optional since TOML 1.1, they default to zero.
+/// Fractions beyond nanosecond precision are truncated.
+fn parse_time(s: &str) -> Option<(time::Time, &str)> {
+    let hour = s.get(0..2)?.parse().ok()?;
+    let minute = s.get(3..5)?.parse().ok()?;
+    if s.get(2..3)? != ":" {
+        return None;
+    }
+    let mut rest = s.get(5..)?;
+
+    let mut second = 0;
+    let mut nanosecond = 0;
+
+    if let Some(r) = rest.strip_prefix(':') {
+        second = r.get(0..2)?.parse().ok()?;
+        rest = r.get(2..)?;
+
+        if let Some(r) = rest.strip_prefix('.') {
+            let digits = r.bytes().take_while(u8::is_ascii_digit).count();
+            if digits == 0 {
+                return None;
+            }
+
+            for (i, b) in r.bytes().take(9).enumerate() {
+                if i < digits {
+                    nanosecond += u32::from(b - b'0') * 10u32.pow(8 - i as u32);
+                }
+            }
+
+            rest = r.get(digits..)?;
+        }
+    }
+
+    Some((
+        time::Time::from_hms_nano(hour, minute, second, nanosecond).ok()?,
+        rest,
+    ))
+}
+
+/// Parse a local or offset date-time, the offset is `None` if it is missing or invalid.
+fn parse_date_time(s: &str) -> Option<(time::Date, time::Time, Option<time::UtcOffset>)> {
+    let date = parse_date(s.get(0..10)?)?;
+    if !matches!(s.get(10..11)?, "T" | "t" | " ") {
+        return None;
+    }
+
+    let (time, rest) = parse_time(s.get(11..)?)?;
+
+    let offset = match rest {
+        "" => None,
+        "Z" | "z" => Some(time::UtcOffset::UTC),
+        _ => {
+            let sign: i8 = match rest.get(0..1)? {
+                "+" => 1,
+                "-" => -1,
+                _ => return None,
+            };
+            if rest.len() != 6 || rest.get(3..4)? != ":" {
+                return None;
+            }
+            let hours: i8 = rest.get(1..3)?.parse().ok()?;
+            let minutes: i8 = rest.get(4..6)?.parse().ok()?;
+            time::UtcOffset::from_hms(sign * hours, sign * minutes, 0).ok()
+        }
+    };
+
+    Some((date, time, offset))
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Ord, PartialOrd)]

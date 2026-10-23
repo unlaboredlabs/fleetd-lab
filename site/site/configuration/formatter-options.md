@@ -14,7 +14,7 @@ In some environments (e.g., Visual Studio Code), one needs to reload the extensi
 | :-------------------: | :----------------------------------------------------------------------------------------------------------------------------: | :------------: |
 |     align_entries     |       Align entries vertically. Entries that have table headers, comments, or blank lines between them are not aligned.        |     false      |
 |    align_comments     | Align consecutive comments after entries and items vertically. This applies to comments that are after entries or array items. |      true      |
-| array_trailing_comma  |                                           Put trailing commas for multiline arrays.                                            |      true      |
+| array_trailing_comma  |                                  Put trailing commas for multiline arrays and inline tables.                                   |      true      |
 |   array_auto_expand   |                   Automatically expand arrays to multiple lines when they exceed `column_width` characters.                    |      true      |
 |  array_auto_collapse  |                                     Automatically collapse arrays if they fit in one line.                                     |      true      |
 |    compact_arrays     |                                       Omit whitespace padding inside single-line arrays.                                       |      true      |
@@ -31,3 +31,17 @@ In some environments (e.g., Visual Studio Code), one needs to reload the extensi
 | reorder_inline_tables |                                             Alphabetically reorder inline tables.                                              |     false      |
 |  allowed_blank_lines  |                                     The maximum amount of consecutive blank lines allowed.                                     |       2        |
 |         crlf          |                                                     Use CRLF line endings.                                                     |     false      |
+
+## Inline Tables
+
+Since TOML 1.1 inline tables can span multiple lines. A multi-line inline table is formatted like a multi-line array: one entry per line, indented one level deeper than the line the table starts on, with comments kept next to their entries and the closing brace on its own line. A trailing comma is added after the last entry if `array_trailing_comma` is enabled. Multi-line inline tables are never collapsed into a single line, and single-line inline tables are never expanded.
+
+```toml
+server = {
+  host = "localhost", # where it listens
+  port = 8080,
+  tls = { cert = "a.pem", key = "a.key" },
+}
+```
+
+Trailing comments inside multi-line inline tables are only aligned with each other.
