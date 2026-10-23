@@ -6,7 +6,7 @@ export interface Store {
 }
 
 export class MemoryStore implements Store {
-  hits = {}
+  hits: Record<string, number> = {}
   resetTime: Date
 
   constructor(private windowMs: number) {

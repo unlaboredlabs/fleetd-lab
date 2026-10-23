@@ -237,8 +237,9 @@ export class Router<App extends Router = any, Req = any, Res = any> implements R
   unsubscribe!: RIM<Req, Res, this>
 
   constructor() {
+    const methods = this as this & Record<Lowercase<Method>, RIM<Req, Res, this>>
     for (const m of METHODS) {
-      this[m.toLowerCase()] = this.add(m as Method)
+      methods[m.toLowerCase() as Lowercase<Method>] = this.add(m as Method)
     }
   }
 

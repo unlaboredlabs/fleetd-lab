@@ -111,7 +111,7 @@ export const sendFile =
       // fall through to a normal 200 full-body response.
       if (Array.isArray(ranges) && ranges.length === 1) {
         status = 206
-        const { start, end } = ranges[0]
+        const { start, end } = ranges[0]!
 
         options.start = start
         options.end = end
