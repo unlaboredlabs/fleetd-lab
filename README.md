@@ -304,3 +304,4 @@ Please see [CONTRIBUTING.md](CONTRIBUTING.md)
 
 [php library]: https://github.com/jdorn/sql-formatter
 [prettier-plugin-sql-cst]: https://github.com/nene/prettier-plugin-sql-cst
+
