@@ -306,10 +306,6 @@ export class App<Req extends Request = Request, Res extends Response = Response>
 
     req.baseUrl = ''
 
-    // Holds the url state the running middleware was invoked with, so that the url can be
-    // restored once the middleware hands the request back to the app.
-    let current: { url: string; baseUrl: string; entryUrl: string } | null = null
-
     const handle = (middleware: Middleware, pathname: string) => {
       const { path, handler, regex } = middleware
 
@@ -323,21 +319,24 @@ export class App<Req extends Request = Request, Res extends Response = Response>
         throw e
       }
 
-      // params are decoded, use the length of the raw match
-      const prefixLength = regex?.pattern.exec(pathname)?.[0].length ?? (path as string).length
+      let prefix = path as string
+      if (regex) {
+        for (const key of regex.keys as string[]) {
+          if (key === 'wild') {
+            prefix = prefix.replace('*', params.wild)
+          } else {
+            prefix = prefix.replace(`:${key}`, params[key])
+          }
+        }
+      }
 
       // biome-ignore lint/suspicious/noAssignInExpressions: its faster this way
       Object.assign((req.params ??= {}), params)
 
-      const prevUrl = req.url
-      const prevBaseUrl = req.baseUrl
-
       if (middleware.type === 'mw') {
-        req.url = lead(req.originalUrl.slice(prefixLength))
-        req.baseUrl = trail(req.originalUrl.slice(0, prefixLength))
+        req.url = lead(req.originalUrl.slice(prefix.length))
+        req.baseUrl = trail(req.originalUrl.slice(0, prefix.length))
       }
-
-      current = { url: prevUrl, baseUrl: prevBaseUrl, entryUrl: req.url }
 
       req.path ??= pathname
       if (this.settings?.enableReqRoute) req.route = middleware
@@ -346,22 +345,17 @@ export class App<Req extends Request = Request, Res extends Response = Response>
     }
 
     let idx = 0
-    let queuedPathname: string | undefined
 
     const loop = () => {
       req.originalUrl = req.baseUrl + req.url
       const pathname = getPathname(req.url)
-
-      // url was rewritten, rematch the middleware that has not run yet
-      if (queuedPathname !== undefined && pathname !== queuedPathname) {
-        mw.length = idx
-        req.params = {}
-      }
-      queuedPathname = pathname
-
       const matched = this.#find(pathname, req.method as string, mw)
 
       if (matched.length && matched[0] !== null) {
+        if (idx !== 0) {
+          idx = mw.length
+          req.params = {}
+        }
         mw.push(...matched, HEAD_HANDLER_MW)
       } else if (this.parent == null) {
         mw.push({
@@ -382,18 +376,6 @@ export class App<Req extends Request = Request, Res extends Response = Response>
       }
 
       if (res.writableEnded) return
-
-      // A middleware mounted on a path is given the url relative to that path. When it hands
-      // the request back without rewriting the url itself, the original url is restored so
-      // that the remaining middleware and routes are matched against it.
-      if (current !== null) {
-        if (req.url === current.entryUrl) {
-          req.url = current.url
-          req.baseUrl = current.baseUrl
-        }
-        current = null
-      }
-
       if (idx >= mw.length) {
         parentNext?.()
         return

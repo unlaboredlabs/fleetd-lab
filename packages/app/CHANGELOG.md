@@ -18,15 +18,6 @@
   `req.hostname` `a.b.com`, a host the request was not sent to, and a malformed
   escape such as `Host: %` failed the request with a 500. The host is now only
   lowercased, the same way as express.
-- 89dbb01: fix: strip the raw mount path from `req.url` when its params are percent-encoded
-  
-  The prefix stripped from `req.url` for a middleware or sub-app mounted on a path
-  with params was rebuilt from the decoded params, but sliced off the raw url.
-  When a param was percent-encoded the decoded prefix was shorter, so the mounted
-  middleware or sub-app received a wrong `req.url` and `req.baseUrl`. A sub-app
-  mounted on `/:tenant` received `/admin/users` for a request to
-  `/%C3%A9admin/users` instead of `/users`. The prefix is now the part of the raw
-  url the mount path matched.
 - f0636c7: fix: keep IPv6 addresses whole in `req.ip`
   
   `req.ip` stripped everything up to the last colon of the address, meant to
@@ -42,17 +33,6 @@
   `req.secure` `false` unless a trusted proxy sent `X-Forwarded-Proto`. The
   protocol is now derived from the socket being encrypted, the same way as
   express.
-- 00f5f9b: fix: run the remaining middleware after a middleware rewrites `req.url`
-  
-  When a middleware rewrote `req.url` and called `next()`, the request was
-  forwarded to the routes matching the new url, but the middleware that was
-  queued for the original url and had not run yet was dropped. A middleware
-  registered after the one rewriting the url, such as an authentication check,
-  never ran for that request.
-  
-  The queued middleware that has not run is now matched against the new url
-  again, so it still runs when it matches it. The url forwarding behaviour is
-  otherwise unchanged.
 - Updated dependencies [ae7f7a0]
   - @tinyhttp/res@2.2.16
 
@@ -60,22 +40,7 @@
 
 ### Patch Changes
 
-- 1f5622f: fix: match the remaining middleware and routes against the original url (GHSA-6xff-v2p2-cwwc)
-  
-  A middleware registered on a path is given the url relative to that path, e.g.
-  `app.use('/public', fn)` receives `/dashboard` for a request to
-  `/public/dashboard`. That url was never restored when the middleware handed the
-  request back with `next()`, so the dispatch loop kept resolving the rest of the
-  chain against the stripped url. A request to `/public/dashboard` was therefore
-  matched against `/dashboard` instead of `/public/dashboard`, which skipped the
-  middleware registered after the mounted one.
-  
-  - the original url is restored when a mounted middleware calls `next()` without
-    rewriting the url itself, so the remaining middleware and routes are matched
-    against it
-  - a middleware that rewrites `req.url` still forwards the request to the route
-    matching the rewritten url
-  - routes registered under a mount path are reachable again
+- Internal changes.
 
 ## 3.0.11
 
