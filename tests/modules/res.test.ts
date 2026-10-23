@@ -428,6 +428,49 @@ describe('Response extensions', () => {
 
       await makeFetch(app)('/').expect(200)
     })
+    it('should not mutate options and send the same attributes when reused', async () => {
+      const opts = { maxAge: 60000 }
+
+      let cookies: string[] = []
+
+      const app = runServer((req, res) => {
+        setCookie(req, res)('a', 'b', opts)
+        setCookie(req, res)('a', 'b', opts).end()
+
+        cookies = res.getHeader('Set-Cookie') as string[]
+      })
+
+      await makeFetch(app)('/').expect(200)
+
+      expect(cookies).toHaveLength(2)
+      for (const c of cookies) {
+        expect(c).toMatch(/^a=b; Max-Age=60; Path=\/; Expires=[^;]+$/)
+      }
+      expect(opts).toStrictEqual({ maxAge: 60000 })
+      expect(Object.keys(opts)).toEqual(['maxAge'])
+    })
+    it('should not mutate options of signed cookies', async () => {
+      const opts = { maxAge: 60000, signed: true }
+
+      let cookies: string[] = []
+
+      const app = runServer((req, res) => {
+        ;(req as typeof req & { secret: string }).secret = 'my-secret'
+        setCookie(req as typeof req & { secret: string }, res)('a', 'b', opts)
+        setCookie(req as typeof req & { secret: string }, res)('a', 'b', opts).end()
+
+        cookies = res.getHeader('Set-Cookie') as string[]
+      })
+
+      await makeFetch(app)('/').expect(200)
+
+      expect(cookies).toHaveLength(2)
+      for (const c of cookies) {
+        expect(c).toMatch(/^a=s%3Ab\.[^;]+; Max-Age=60; Path=\/; Expires=[^;]+$/)
+      }
+      expect(opts).toStrictEqual({ maxAge: 60000, signed: true })
+      expect(Object.keys(opts)).toEqual(['maxAge', 'signed'])
+    })
   })
   describe('res.clearCookie(name, options)', () => {
     it('sets path to "/" if not specified in options', async () => {
