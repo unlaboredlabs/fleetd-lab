@@ -306,8 +306,12 @@ export class App<Req extends Request = Request, Res extends Response = Response>
 
     req.baseUrl = ''
 
+    // url state of the request before the running middleware mounted on a path stripped its
+    // mount path, restored once the middleware hands the request back with next()
+    let mounted: { url: string; baseUrl: string; strippedUrl: string } | null = null
+
     const handle = (middleware: Middleware, pathname: string) => {
-      const { path, handler, regex } = middleware
+      const { handler, regex } = middleware
 
       let params: URLParams
 
@@ -319,23 +323,16 @@ export class App<Req extends Request = Request, Res extends Response = Response>
         throw e
       }
 
-      let prefix = path as string
-      if (regex) {
-        for (const key of regex.keys as string[]) {
-          if (key === 'wild') {
-            prefix = prefix.replace('*', params.wild)
-          } else {
-            prefix = prefix.replace(`:${key}`, params[key])
-          }
-        }
-      }
-
       // biome-ignore lint/suspicious/noAssignInExpressions: its faster this way
       Object.assign((req.params ??= {}), params)
 
-      if (middleware.type === 'mw') {
-        req.url = lead(req.originalUrl.slice(prefix.length))
-        req.baseUrl = trail(req.originalUrl.slice(0, prefix.length))
+      if (middleware.type === 'mw' && regex) {
+        // params are decoded, strip the part of the raw url the mount path matched
+        const prefixLength = regex.pattern.exec(pathname)?.[0].length ?? 0
+        const { url, baseUrl } = req
+        req.url = lead(url.slice(prefixLength))
+        req.baseUrl = trail(baseUrl + url.slice(0, prefixLength))
+        mounted = { url, baseUrl, strippedUrl: req.url }
       }
 
       req.path ??= pathname
@@ -345,17 +342,22 @@ export class App<Req extends Request = Request, Res extends Response = Response>
     }
 
     let idx = 0
+    let matchedPathname: string | undefined
 
     const loop = () => {
       req.originalUrl = req.baseUrl + req.url
       const pathname = getPathname(req.url)
+
+      // req.url was rewritten, match the middleware that has not run yet against the new url
+      if (matchedPathname !== undefined && pathname !== matchedPathname) {
+        mw.length = idx
+        req.params = {}
+      }
+      matchedPathname = pathname
+
       const matched = this.#find(pathname, req.method as string, mw)
 
       if (matched.length && matched[0] !== null) {
-        if (idx !== 0) {
-          idx = mw.length
-          req.params = {}
-        }
         mw.push(...matched, HEAD_HANDLER_MW)
       } else if (this.parent == null) {
         mw.push({
@@ -364,6 +366,8 @@ export class App<Req extends Request = Request, Res extends Response = Response>
           path: '/'
         })
       }
+
+      if (idx >= mw.length) return parentNext?.()
 
       void handle(mw[idx++], pathname)
     }
@@ -376,6 +380,15 @@ export class App<Req extends Request = Request, Res extends Response = Response>
       }
 
       if (res.writableEnded) return
+
+      // Unless the middleware mounted on a path changed req.url itself, match the remaining
+      // middleware and routes against the url it was mounted on again
+      if (mounted !== null) {
+        if (req.url === mounted.strippedUrl) req.url = mounted.url
+        req.baseUrl = mounted.baseUrl
+        mounted = null
+      }
+
       if (idx >= mw.length) {
         parentNext?.()
         return
