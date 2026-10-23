@@ -116,8 +116,8 @@ sql-formatter -h
 ```
 
 ```
-usage: sql-formatter [-h] [-o OUTPUT] \
-[-l {bigquery,clickhouse,db2,db2i,hana,hive,mariadb,mysql,n1ql,plsql,postgresql,redshift,singlestoredb,snowflake,spark,sql,sqlite,tidb,transactsql,trino,tsql}] [-c CONFIG] [--version] [FILE]
+usage: sql-formatter [-h] [-o OUTPUT] [--fix] \
+[-l {bigquery,clickhouse,db2,db2i,duckdb,hana,hive,mariadb,mysql,n1ql,plsql,postgresql,redshift,spark,sqlite,sql,tidb,trino,transactsql,tsql,singlestoredb,snowflake}] [-c CONFIG] [--version] [FILE]
 
 SQL Formatter
 
@@ -129,8 +129,8 @@ optional arguments:
   -o, --output    OUTPUT
                     File to write SQL output (defaults to stdout)
   --fix           Update the file in-place
-  -l, --language  {bigquery,clickhouse,db2,db2i,hana,hive,mariadb,mysql,n1ql,plsql,postgresql,redshift,singlestoredb,snowflake,spark,sql,sqlite,tidb,trino,tsql}
-                    SQL dialect (defaults to basic sql)
+  -l, --language  {bigquery,clickhouse,db2,db2i,duckdb,hana,hive,mariadb,mysql,n1ql,plsql,postgresql,redshift,spark,sqlite,sql,tidb,trino,transactsql,tsql,singlestoredb,snowflake}
+                    SQL Formatter dialect (defaults to basic sql)
   -c, --config    CONFIG
                     Path to config JSON file or json string (will find a file named '.sql-formatter.json' or use default configs if unspecified)
   --version       show program's version number and exit
