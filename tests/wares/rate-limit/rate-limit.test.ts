@@ -1,7 +1,7 @@
 import { makeFetch } from 'supertest-fetch'
 import { describe, expect, it, vi } from 'vitest'
 import { App } from '../../../packages/app/src'
-import { rateLimit } from '../../../packages/rate-limit/src'
+import { MemoryStore, rateLimit } from '../../../packages/rate-limit/src'
 
 function createAppWith(middleware) {
   const app = new App()
@@ -54,6 +54,61 @@ describe('rate-limit', () => {
       await makeFetch(app)('/').expect(200)
       await makeFetch(app)('/').expect(200)
       await makeFetch(app)('/').expect(429)
+    })
+
+    it('should limit clients separately by their socket address when networkExtensions is off', async () => {
+      const app = new App()
+      // simulate requests coming from different client addresses
+      app.use((req, _res, next) => {
+        Object.defineProperty(req.socket, 'remoteAddress', {
+          value: req.headers['x-test-address'],
+          configurable: true
+        })
+        next()
+      })
+      app.use(rateLimit({ max: 1 }))
+      app.get('/', (_, res) => res.send('response!'))
+      const fetch = makeFetch(app.listen())
+
+      await fetch('/', { headers: { 'X-Test-Address': '203.0.113.1' } }).expect(200)
+      await fetch('/', { headers: { 'X-Test-Address': '203.0.113.1' } }).expect(429)
+      await fetch('/', { headers: { 'X-Test-Address': '203.0.113.2' } }).expect(200)
+    })
+
+    it('should limit clients separately by req.ip when networkExtensions is on', async () => {
+      const keys: string[] = []
+      const store = new MemoryStore(5000)
+      const incr = store.incr.bind(store)
+      store.incr = (key, cb) => {
+        keys.push(key)
+        incr(key, cb)
+      }
+      const app = new App({ settings: { networkExtensions: true, 'trust proxy': 'loopback' } })
+      app.use(rateLimit({ max: 1, store }))
+      app.get('/', (_, res) => res.send('response!'))
+      const fetch = makeFetch(app.listen())
+
+      await fetch('/', { headers: { 'X-Forwarded-For': '203.0.113.1' } }).expect(200)
+      await fetch('/', { headers: { 'X-Forwarded-For': '203.0.113.1' } }).expect(429)
+      await fetch('/', { headers: { 'X-Forwarded-For': '203.0.113.2' } }).expect(200)
+      expect(keys).toEqual(['203.0.113.1', '203.0.113.1', '203.0.113.2'])
+    })
+
+    it('should key the requests by the socket address when req.ip is not set', async () => {
+      const keys: string[] = []
+      const store = {
+        incr: (key: string, cb: (error: Error | null, hits: number, resetTime: Date) => void) => {
+          keys.push(key)
+          cb(null, 1, new Date())
+        },
+        decrement: () => {},
+        resetAll: () => {},
+        resetKey: () => {}
+      }
+      const app = createAppWith(rateLimit({ store }))
+
+      await makeFetch(app)('/').expect(200)
+      expect(['127.0.0.1', '::ffff:127.0.0.1', '::1']).toContain(keys[0])
     })
 
     it('should show the provided message instead of the default message when max connections are reached', async () => {
