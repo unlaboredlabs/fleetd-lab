@@ -1,7 +1,8 @@
-import { Agent } from 'node:http'
+import { Agent, createServer, request } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { makeFetch } from 'supertest-fetch'
 import { afterEach, assert, describe, expect, it, vi } from 'vitest'
-import { getIP, type Request } from '../../packages/app/src'
+import { getHost, getIP, getProtocol, type Request } from '../../packages/app/src'
 import { App } from '../../packages/app/src/app'
 import * as req from '../../packages/req/src'
 import { InitAppAndTest } from '../../test_helpers/initAppAndTest'
@@ -485,6 +486,34 @@ describe('Request properties', () => {
 
       await fetch('/').expect(200, 'protocol: https, secure: true')
     })
+    it('req.protocol is https and req.secure is true on an encrypted connection', async () => {
+      const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
+      vi.mocked(req.getRequestHeader).mockImplementation(getRequestHeader)
+
+      const app = new App(options)
+      app.use((req, res) => void res.send(`protocol: ${req.protocol}, secure: ${req.secure}`))
+
+      // mark the socket the way a TLS server does, without needing a certificate
+      const server = createServer(app.attach)
+      server.on('connection', (socket) => Object.assign(socket, { encrypted: true }))
+      server.listen()
+
+      try {
+        await makeFetch(server)('/').expect(200, 'protocol: https, secure: true')
+      } finally {
+        server.close()
+      }
+    })
+    it('getProtocol derives the protocol from the connection', () => {
+      const make = (encrypted: boolean, headers: Record<string, string> = {}) =>
+        ({ headers, socket: { remoteAddress: '127.0.0.1', encrypted } }) as unknown as Request
+
+      expect(getProtocol(make(true), 0)).toBe('https')
+      expect(getProtocol(make(false), 0)).toBe('http')
+      expect(getProtocol(make(true, { 'x-forwarded-proto': 'http' }), 0)).toBe('https')
+      expect(getProtocol(make(false, { 'x-forwarded-proto': 'https' }), () => true)).toBe('https')
+      expect(getProtocol(make(true, { 'x-forwarded-proto': 'http' }), () => true)).toBe('http')
+    })
     it('req.subdomains is empty by default', async () => {
       const { fetch } = InitAppAndTest(
         (req, res) => {
@@ -615,6 +644,54 @@ describe('Request properties', () => {
       )
       const response = await fetch('/')
       assert(!response.ok)
+    })
+    it('should not percent-decode the host header', async () => {
+      const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
+      vi.mocked(req.getRequestHeader).mockImplementation(getRequestHeader)
+
+      const app = new App(options)
+      app.use((req, res) => void res.send(`hostname: ${req.hostname}`))
+      const server = app.listen()
+      const { port } = server.address() as AddressInfo
+
+      // send the Host header verbatim, fetch does not allow overriding it
+      const get = (host: string) =>
+        new Promise<{ status: number; body: string }>((resolve, reject) => {
+          request({ port, path: '/', headers: { host } }, (res) => {
+            let body = ''
+            res.setEncoding('utf8')
+            res.on('data', (chunk) => {
+              body += chunk
+            })
+            res.on('end', () => resolve({ status: res.statusCode as number, body }))
+          })
+            .on('error', reject)
+            .end()
+        })
+
+      try {
+        expect(await get('%41pi.Example.com')).toEqual({ status: 200, body: 'hostname: %41pi.example.com' })
+        expect(await get('%')).toEqual({ status: 200, body: 'hostname: %' })
+      } finally {
+        server.close()
+      }
+    })
+    it('getHost lowercases but never percent-decodes the host', () => {
+      const make = (headers: Record<string, string>) =>
+        ({ headers, socket: { remoteAddress: '127.0.0.1' } }) as unknown as Request
+
+      expect(getHost(make({ host: '%41pi.Example.com:8080' }), 0)).toEqual({
+        hostname: '%41pi.example.com',
+        port: 8080
+      })
+      expect(getHost(make({ host: '%' }), 0)).toEqual({ hostname: '%' })
+      expect(getHost(make({ ':authority': 'user@%41PI.example.com' }), 0)).toEqual({ hostname: '%41pi.example.com' })
+      expect(getHost(make({ host: 'a.example.com', 'x-forwarded-host': '%41pi.Example.com' }), () => true)).toEqual({
+        hostname: '%41pi.example.com'
+      })
+      expect(getHost(make({ host: 'a.example.com', 'x-forwarded-host': '%41pi.example.com' }), 0)).toEqual({
+        hostname: 'a.example.com'
+      })
     })
     it('should not crash app when host header is malformed', async () => {
       const { fetch } = InitAppAndTest(

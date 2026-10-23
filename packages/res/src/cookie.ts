@@ -13,11 +13,13 @@ export const setCookie =
   (
     name: string,
     value: string | Record<string, unknown>,
-    options: cookie.SerializeOptions &
+    opts: cookie.SerializeOptions &
       Partial<{
         signed: boolean
       }> = {}
   ): Response => {
+    // copy the options so that the caller's object is left untouched
+    const options = { ...opts }
     const secret = req.secret as string
 
     const signed = options.signed || false

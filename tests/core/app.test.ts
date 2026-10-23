@@ -493,6 +493,53 @@ describe('HTTP methods', () => {
 
     await fetch('/', { method: 'HEAD' }).expect(200, '')
   })
+  it('HEAD runs the GET route and not a route of another method registered before it', async () => {
+    const app = new App()
+    const ran: string[] = []
+
+    app.post('/item', (_req, res) => {
+      ran.push('POST')
+      res.status(201).send('created')
+    })
+    app.get('/item', (_req, res) => {
+      ran.push('GET')
+      res.set('X-Handler', 'get').send('item')
+    })
+
+    const fetch = makeFetch(app.listen())
+
+    await fetch('/item', { method: 'HEAD' }).expect(200, '').expectHeader('X-Handler', 'get')
+    expect(ran).toEqual(['GET'])
+  })
+  it('HEAD runs `all` routes but no route of another method', async () => {
+    const app = new App()
+    const ran: string[] = []
+
+    app.put('/item', (_req, res) => {
+      ran.push('PUT')
+      res.send('put')
+    })
+    app.all('/item', (_req, _res, next) => {
+      ran.push('ALL')
+      next()
+    })
+    app.head('/item', (_req, res) => {
+      ran.push('HEAD')
+      res.set('X-Handler', 'head').end()
+    })
+
+    const fetch = makeFetch(app.listen())
+
+    await fetch('/item', { method: 'HEAD' }).expect(200, '').expectHeader('X-Handler', 'head')
+    expect(ran).toEqual(['ALL', 'HEAD'])
+  })
+  it('HEAD responds with 404 when only routes of other methods match', async () => {
+    const app = new App()
+
+    app.post('/item', (_req, res) => void res.send('created'))
+
+    await makeFetch(app.listen())('/item', { method: 'HEAD' }).expect(404)
+  })
   it('app.delete handles delete request', async () => {
     const app = new App()
 
