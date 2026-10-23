@@ -33,15 +33,19 @@ function mimeMatch(expected: string | boolean | null, actual: string | boolean):
   // validate type
   if (expectedParts[0] !== '*' && expectedParts[0] !== actualParts[0]) return false
 
+  // both have exactly two parts after the format check above
+  const expectedSubtype = expectedParts[1]!
+  const actualSubtype = actualParts[1]!
+
   // validate suffix wildcard
-  if (expectedParts[1].slice(0, 2) === '*+')
+  if (expectedSubtype.slice(0, 2) === '*+')
     return (
-      expectedParts[1].length <= actualParts[1].length + 1 &&
-      expectedParts[1].slice(1) === actualParts[1].slice(1 - expectedParts[1].length)
+      expectedSubtype.length <= actualSubtype.length + 1 &&
+      expectedSubtype.slice(1) === actualSubtype.slice(1 - expectedSubtype.length)
     )
 
   // validate subtype
-  if (expectedParts[1] !== '*' && expectedParts[1] !== actualParts[1]) return false
+  if (expectedSubtype !== '*' && expectedSubtype !== actualSubtype) return false
 
   return true
 }
@@ -69,7 +73,6 @@ function normalize(type: string | unknown): string | false | null {
  * or a mime type.
  */
 export const typeIs = (value: string, ...types: string[]) => {
-  let i: number
   // remove parameters and normalize
   const val = tryNormalizeType(value)
 
@@ -79,9 +82,7 @@ export const typeIs = (value: string, ...types: string[]) => {
   // no types, return the content type
   if (!types || !types.length) return val
 
-  let type: string
-  for (i = 0; i < types.length; i++) {
-    type = types[i]
+  for (const type of types) {
     if (mimeMatch(normalize(type), val)) {
       return type[0] === '+' || type.indexOf('*') !== -1 ? val : type
     }

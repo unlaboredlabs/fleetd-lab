@@ -143,8 +143,8 @@ function decodefield(str: string) {
   const match = EXT_VALUE_REGEXP.exec(str)
   if (!match) throw new TypeError('invalid extended field value')
 
-  const charset = match[1].toLowerCase()
-  const encoded = match[2]
+  const charset = match[1]!.toLowerCase()
+  const encoded = match[2]!
   let value: string
   switch (charset) {
     case 'iso-8859-1':
@@ -175,12 +175,12 @@ export function parse(header: string): ContentDisposition {
 
   // normalize type
   let index = match[0].length
-  const type = match[1].toLowerCase()
+  const type = match[1]!.toLowerCase()
 
   let key: string
   const names: string[] = []
   const params: Record<string, string | boolean> = {}
-  let value: string | string[]
+  let value: string
 
   // calculate index to start at
   index = PARAM_REGEXP.lastIndex = match[0].slice(-1) === ';' ? index - 1 : index
@@ -191,8 +191,8 @@ export function parse(header: string): ContentDisposition {
     if (match.index !== index) throw new TypeError('invalid parameter format')
 
     index += match[0].length
-    key = match[1].toLowerCase()
-    value = match[2]
+    key = match[1]!.toLowerCase()
+    value = match[2]!
 
     if (names.indexOf(key) !== -1) {
       throw new TypeError('invalid duplicate parameter')
