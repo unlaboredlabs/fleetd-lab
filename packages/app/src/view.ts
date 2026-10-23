@@ -65,22 +65,23 @@ export class View<RenderOptions extends TemplateEngineOptions = TemplateEngineOp
       fileName += this.ext
     }
 
-    if (!opts.engines?.[this.ext]) throw new Error(`No engine was found for ${this.ext}`)
+    const engine = opts.engines?.[this.ext]
+    if (!engine) throw new Error(`No engine was found for ${this.ext}`)
     const path = this.#lookup(fileName)
     const dirs =
       Array.isArray(this.root) && this.root.length > 1
         ? `directories "${this.root.slice(0, -1).join('", "')}" or "${this.root[this.root.length - 1]}"`
         : `directory "${this.root}"`
     if (!path) throw new Error(`Failed to lookup view "${name}" in views ${dirs}`)
-    this.engine = opts.engines[this.ext]
+    this.engine = engine
     this.path = path as string
   }
   #lookup(name: string) {
     let path: string | undefined
     const roots = ([] as string[]).concat(this.root)
 
-    for (let i = 0; i < roots.length && !path; i++) {
-      const root = roots[i]
+    for (const root of roots) {
+      if (path) break
       // resolve the path
       const loc = resolve(root, name)
       const dir = dirname(loc)
