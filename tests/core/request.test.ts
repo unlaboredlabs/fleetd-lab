@@ -1,7 +1,10 @@
+import { readFileSync } from 'node:fs'
 import { Agent } from 'node:http'
+import { createServer as createHttpsServer, request as httpsRequest } from 'node:https'
+import type { AddressInfo } from 'node:net'
 import { makeFetch } from 'supertest-fetch'
 import { afterEach, assert, describe, expect, it, vi } from 'vitest'
-import { getHost, getIP, type Request } from '../../packages/app/src'
+import { getHost, getIP, getProtocol, type Request } from '../../packages/app/src'
 import { App } from '../../packages/app/src/app'
 import * as req from '../../packages/req/src'
 import { InitAppAndTest } from '../../test_helpers/initAppAndTest'
@@ -463,6 +466,54 @@ describe('Request properties', () => {
       )
 
       await fetch('/').expect(200, 'secure: false')
+    })
+    it('req.protocol is https and req.secure is true on an HTTPS server', async () => {
+      const app = new App(options)
+
+      app.use((req, res) => {
+        res.send(`protocol: ${req.protocol}, secure: ${req.secure}`)
+      })
+
+      const server = createHttpsServer(
+        {
+          key: readFileSync(new URL('../../examples/http2/localhost-privkey.pem', import.meta.url)),
+          cert: readFileSync(new URL('../../examples/http2/localhost-cert.pem', import.meta.url))
+        },
+        app.attach
+      )
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+
+      try {
+        const body = await new Promise<string>((resolve, reject) => {
+          const { port } = server.address() as AddressInfo
+          httpsRequest({ host: '127.0.0.1', port, path: '/', rejectUnauthorized: false }, (res) => {
+            let data = ''
+            res.setEncoding('utf8')
+            res.on('data', (chunk) => {
+              data += chunk
+            })
+            res.on('end', () => resolve(data))
+          })
+            .on('error', reject)
+            .end()
+        })
+
+        expect(body).toBe('protocol: https, secure: true')
+      } finally {
+        server.close()
+      }
+    })
+    it('getProtocol returns https for an encrypted socket', () => {
+      const encryptedReq = {
+        headers: {},
+        socket: { encrypted: true, remoteAddress: '127.0.0.1' }
+      } as unknown as Request
+
+      expect(getProtocol(encryptedReq, 0)).toBe('https')
+      expect(getProtocol(encryptedReq, ['127.0.0.1'])).toBe('https')
+
+      const forwardedReq = { ...encryptedReq, headers: { 'x-forwarded-proto': 'http' } } as Request
+      expect(getProtocol(forwardedReq, ['127.0.0.1'])).toBe('http')
     })
     it('req.secure is true when connection is encrypted (HTTPS)', async () => {
       const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
