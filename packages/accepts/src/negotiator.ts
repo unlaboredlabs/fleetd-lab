@@ -45,7 +45,7 @@ function parseCharset(str: string, i: number): CharsetSpec | null {
 
   const charset = match[1]!
   const qParam = match[2]?.split(';').find((p) => p.trim().startsWith('q='))
-  const q = qParam ? parseFloat(qParam.split('=')[1]!) : 1
+  const q = parseQuality(qParam)
 
   return { charset, q, i }
 }
@@ -83,10 +83,7 @@ function preferredCharsets(accept: string | undefined, provided?: string[]): str
 
   const priorities = provided.map((type, index) => getCharsetPriority(type, accepts, index))
 
-  return priorities
-    .filter(isQuality)
-    .sort(compareSpecs)
-    .map((priority) => provided[priorities.indexOf(priority)]!)
+  return sortProvided(provided, priorities)
 }
 
 // ============================================================================
@@ -121,7 +118,7 @@ function parseEncoding(str: string, i: number): EncodingSpec | null {
 
   const encoding = match[1]!
   const qParam = match[2]?.split(';').find((p) => p.trim().startsWith('q='))
-  const q = qParam ? parseFloat(qParam.split('=')[1]!) : 1
+  const q = parseQuality(qParam)
 
   return { encoding, q, i }
 }
@@ -159,10 +156,7 @@ function preferredEncodings(accept: string | undefined, provided?: string[]): st
 
   const priorities = provided.map((type, index) => getEncodingPriority(type, accepts, index))
 
-  return priorities
-    .filter(isQuality)
-    .sort(compareSpecs)
-    .map((priority) => provided[priorities.indexOf(priority)]!)
+  return sortProvided(provided, priorities)
 }
 
 // ============================================================================
@@ -194,7 +188,7 @@ function parseLanguage(str: string, i: number): LanguageSpec | null {
   const suffix = match[2]
   const full = suffix ? `${prefix}-${suffix}` : prefix
   const qParam = match[3]?.split(';').find((p) => p.startsWith('q='))
-  const q = qParam ? parseFloat(qParam.split('=')[1]!) : 1
+  const q = parseQuality(qParam)
 
   return { prefix, suffix, q, i, full }
 }
@@ -239,10 +233,7 @@ function preferredLanguages(accept: string | undefined, provided?: string[]): st
 
   const priorities = provided.map((type, index) => getLanguagePriority(type, accepts, index))
 
-  return priorities
-    .filter(isQuality)
-    .sort(compareSpecs)
-    .map((priority) => provided[priorities.indexOf(priority)]!)
+  return sortProvided(provided, priorities)
 }
 
 // ============================================================================
@@ -350,10 +341,7 @@ function preferredMediaTypes(accept: string | undefined, provided?: string[]): s
 
   const priorities = provided.map((type, index) => getMediaTypePriority(type, accepts, index))
 
-  return priorities
-    .filter(isQuality)
-    .sort(compareSpecs)
-    .map((priority) => provided[priorities.indexOf(priority)]!)
+  return sortProvided(provided, priorities)
 }
 
 function quoteCount(str: string): number {
@@ -365,34 +353,28 @@ function splitKeyValuePair(str: string): [string, string] {
   return i === -1 ? [str, ''] : [str.slice(0, i), str.slice(i + 1)]
 }
 
-function splitMediaTypes(accept: string): string[] {
-  const accepts = accept.split(',')
+// split on `separator`, re-joining parts that fall inside a quoted string
+function splitOutsideQuotes(str: string, separator: string): string[] {
+  const parts = str.split(separator)
   let j = 0
 
-  for (let i = 1; i < accepts.length; i++) {
-    if (quoteCount(accepts[j]!) % 2 === 0) {
-      accepts[++j] = accepts[i]!
+  for (let i = 1; i < parts.length; i++) {
+    if (quoteCount(parts[j]!) % 2 === 0) {
+      parts[++j] = parts[i]!
     } else {
-      accepts[j] += `,${accepts[i]}`
+      parts[j] += `${separator}${parts[i]}`
     }
   }
 
-  return accepts.slice(0, j + 1)
+  return parts.slice(0, j + 1)
+}
+
+function splitMediaTypes(accept: string): string[] {
+  return splitOutsideQuotes(accept, ',')
 }
 
 function splitParameters(str: string): string[] {
-  const parameters = str.split(';')
-  let j = 0
-
-  for (let i = 1; i < parameters.length; i++) {
-    if (quoteCount(parameters[j]!) % 2 === 0) {
-      parameters[++j] = parameters[i]!
-    } else {
-      parameters[j] += `;${parameters[i]}`
-    }
-  }
-
-  return parameters.slice(0, j + 1).map((p) => p.trim())
+  return splitOutsideQuotes(str, ';').map((p) => p.trim())
 }
 
 // ============================================================================
@@ -405,6 +387,19 @@ function compareSpecs(a: Spec, b: Spec): number {
 
 function isQuality(spec: { q: number }): boolean {
   return spec.q > 0
+}
+
+// `qParam` starts with `q=`, so splitting on `=` always yields a value part
+function parseQuality(qParam: string | undefined): number {
+  return qParam ? parseFloat(qParam.split('=')[1]!) : 1
+}
+
+// `priorities` is `provided.map(...)`, so every priority's index is within `provided`
+function sortProvided(provided: string[], priorities: Spec[]): string[] {
+  return priorities
+    .filter(isQuality)
+    .sort(compareSpecs)
+    .map((priority) => provided[priorities.indexOf(priority)]!)
 }
 
 // ============================================================================

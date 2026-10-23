@@ -11,10 +11,10 @@ export const getURLParams = ({ pattern, keys }: Regex, reqUrl = '/'): URLParams 
   const params: URLParams = {}
 
   if (matches && typeof keys !== 'boolean')
-    for (let i = 0; i < keys.length; i++) {
+    for (const [i, key] of keys.entries()) {
       const match = matches[i + 1]
       if (match) {
-        params[keys[i]!] = decodeURIComponent(match)
+        params[key] = decodeURIComponent(match)
       }
     }
 

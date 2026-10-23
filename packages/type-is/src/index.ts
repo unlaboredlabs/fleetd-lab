@@ -73,7 +73,6 @@ function normalize(type: string | unknown): string | false | null {
  * or a mime type.
  */
 export const typeIs = (value: string, ...types: string[]) => {
-  let i: number
   // remove parameters and normalize
   const val = tryNormalizeType(value)
 
@@ -83,9 +82,7 @@ export const typeIs = (value: string, ...types: string[]) => {
   // no types, return the content type
   if (!types || !types.length) return val
 
-  let type: string
-  for (i = 0; i < types.length; i++) {
-    type = types[i]!
+  for (const type of types) {
     if (mimeMatch(normalize(type), val)) {
       return type[0] === '+' || type.indexOf('*') !== -1 ? val : type
     }
