@@ -162,6 +162,50 @@ describe('Request properties', () => {
         params: { wild: 'a/b/c/d' }
       })
     })
+    it('should set the correct req.url on a subapp mounted on a path with an encoded param', async () => {
+      const subApp = new App()
+      subApp.use((_req, _res, next) => next())
+      subApp.get('/admin/users', (_, res) => res.send('admin users'))
+      subApp.get('/users', (req, res) => res.send({ url: req.url, params: req.params }))
+      const app = new App().use('/:tenant', subApp)
+      const fetch = makeFetch(app.listen())
+      await fetch('/%C3%A9admin/users').expect(200, {
+        url: '/users',
+        params: { tenant: 'éadmin' }
+      })
+    })
+    it('should set the correct req.url and req.baseUrl on a mw mounted on a path with encoded params', async () => {
+      const echo = (req, res) => res.send({ url: req.url, baseUrl: req.baseUrl, params: req.params })
+      const app = new App().use('/p/:name', echo).use('/w/*', echo)
+      const fetch = makeFetch(app.listen())
+      await fetch('/p/a%20b/c').expect(200, {
+        url: '/c',
+        baseUrl: '/p/a%20b',
+        params: { name: 'a b' }
+      })
+      await fetch('/p/ab/c').expect(200, {
+        url: '/c',
+        baseUrl: '/p/ab',
+        params: { name: 'ab' }
+      })
+      await fetch('/w/a%2Fb').expect(200, {
+        url: '/',
+        baseUrl: '/w/a%2Fb',
+        params: { wild: 'a/b' }
+      })
+    })
+    it('should keep the route params and the original req.url after a mw mounted on a path with params', async () => {
+      const app = new App()
+      app.use('/p/:name', (_req, _res, next) => next())
+      app.get('/p/:name/:page', (req, res) => res.send({ url: req.url, baseUrl: req.baseUrl, params: req.params }))
+      app.get('/:page', (_, res) => res.send('wrong route'))
+      const fetch = makeFetch(app.listen())
+      await fetch('/p/a%20b/c').expect(200, {
+        url: '/p/a%20b/c',
+        baseUrl: '',
+        params: { name: 'a b', page: 'c' }
+      })
+    })
     it('should rewrite req.url, follow the next route and set correct req.url in response', async () => {
       const rewrite = (req, _, next) => {
         req.url = '/a/b'
@@ -194,6 +238,72 @@ describe('Request properties', () => {
       await fetch('/a').expect(200, {
         url: '/b'
       })
+    })
+    it('should run the middleware registered after the one that rewrites req.url', async () => {
+      const app = new App()
+      app.use((req, _, next) => {
+        if (req.url.startsWith('/en/')) req.url = req.url.slice(3)
+        next()
+      })
+      app.use((req, res, next) => (req.headers.authorization ? next() : res.status(401).send('login required')))
+      app.get('/dashboard', (_, res) => res.send('dashboard'))
+      const fetch = makeFetch(app.listen())
+      await fetch('/dashboard').expect(401, 'login required')
+      await fetch('/en/dashboard').expect(401, 'login required')
+      await fetch('/en/dashboard', { headers: { authorization: 'yes' } }).expect(200, 'dashboard')
+    })
+    it('should run the middleware registered after a middleware mounted on a path that changes req.url', async () => {
+      const app = new App()
+      app.use('/public', (req, _, next) => {
+        req.url = req.url.replace(/\?.*$/, '')
+        next()
+      })
+      app.use((_, res) => res.status(401).send('login required'))
+      app.get('/dashboard', (_, res) => res.send('dashboard'))
+      const fetch = makeFetch(app.listen())
+      await fetch('/public/dashboard').expect(401, 'login required')
+      await fetch('/public/dashboard?x=1').expect(401, 'login required')
+    })
+    it('should run the middleware queued before req.url was rewritten only once', async () => {
+      const app = new App()
+      let calls = 0
+      app.use((req, _, next) => {
+        req.url = '/b'
+        next()
+      })
+      app.use((_req, _res, next) => {
+        calls++
+        next()
+      })
+      app.get('/b', (req, res) => res.send(req.url))
+      const fetch = makeFetch(app.listen())
+      await fetch('/a').expect(200, '/b')
+      expect(calls).toBe(1)
+    })
+    it('should match the middleware after a rewrite against the new req.url', async () => {
+      const app = new App()
+      const seen: string[] = []
+      app.use('/old', (req, _, next) => {
+        req.url = `/new${req.url}`
+        next()
+      })
+      app.use('/old', (_req, res) => res.status(500).send('old guard'))
+      app.use('/new', (req, _, next) => {
+        seen.push(`${req.baseUrl} ${req.url}`)
+        next()
+      })
+      app.get('/new/page', (req, res) => res.send({ url: req.url, baseUrl: req.baseUrl, seen }))
+      const fetch = makeFetch(app.listen())
+      await fetch('/old/page').expect(200, { url: '/new/page', baseUrl: '', seen: ['/new /page'] })
+    })
+    it('should hand the request back to the parent app when the url rewritten in a subapp matches nothing in it', async () => {
+      const subApp = new App().use((req, _, next) => {
+        req.url = '/other'
+        next()
+      })
+      const app = new App().use('/s', subApp).get('/other', (req, res) => res.send(req.url))
+      const fetch = makeFetch(app.listen())
+      await fetch('/s/x').expect(200, '/other')
     })
     it('should reset params when middleware chain finds new matches after rewrite', async () => {
       // This tests the branch where idx !== 0 and new matched routes are found

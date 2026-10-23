@@ -187,6 +187,63 @@ describe('Testing App routing', () => {
 
       await fetch('/public/dashboard').expect(200, '/public/dashboard')
     })
+    it('matches the routes against the original url', async () => {
+      const app = new App()
+
+      app.use('/public', (_req, _res, next) => next())
+      app.get('/public/dashboard', (_req, res) => void res.send('public dashboard'))
+      app.get('/dashboard', (_req, res) => void res.send('dashboard'))
+
+      const fetch = makeFetch(app.listen())
+
+      await fetch('/public/dashboard').expect(200, 'public dashboard')
+      await fetch('/dashboard').expect(200, 'dashboard')
+    })
+    it('does not match a route against the url relative to the mount path', async () => {
+      const app = new App()
+
+      app.use('/public', (_req, _res, next) => next())
+      app.get('/dashboard', (_req, res) => void res.send('dashboard'))
+
+      const fetch = makeFetch(app.listen())
+
+      await fetch('/dashboard').expect(200, 'dashboard')
+      await fetch('/public/dashboard').expect(404)
+    })
+    it('gives each mounted middleware the url relative to its own mount path', async () => {
+      const app = new App()
+      const urls: string[] = []
+
+      app.use('/a', (req, _res, next) => {
+        urls.push(`f ${req.url} ${req.baseUrl}`)
+        next()
+      })
+      app.use('/a/b', (req, _res, next) => {
+        urls.push(`g ${req.url} ${req.baseUrl}`)
+        next()
+      })
+      app.get('/a/b/c', (req, res) => void res.send([...urls, `route ${req.url}`]))
+
+      const fetch = makeFetch(app.listen())
+
+      await fetch('/a/b/c').expect(200, ['f /b/c /a', 'g /c /a/b', 'route /a/b/c'])
+    })
+    it('runs a guard mounted after another middleware on the same path', async () => {
+      const app = new App()
+
+      app.use('/admin', (_req, _res, next) => next())
+      app.use('/admin', (req, res, next) =>
+        req.headers.authorization ? next() : void res.status(401).send('login required')
+      )
+      app.get('/admin/users', (_req, res) => void res.send('users'))
+      app.get('/users', (_req, res) => void res.send('public users'))
+
+      const fetch = makeFetch(app.listen())
+
+      await fetch('/admin/users').expect(401, 'login required')
+      await fetch('/admin/users', { headers: { authorization: 'yes' } }).expect(200, 'users')
+      await fetch('/users').expect(200, 'public users')
+    })
   })
   it('"*" should catch all undefined routes', async () => {
     const app = new App()
