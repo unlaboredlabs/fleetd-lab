@@ -3,31 +3,31 @@ import { makeFetch } from 'supertest-fetch'
 import { describe, expect, it } from 'vitest'
 import { App } from '../../packages/app/src'
 import {
-  checkIfXMLHttpRequest,
   getAccepts,
   getAcceptsCharsets,
   getAcceptsEncodings,
   getAcceptsLanguages,
-  getFreshOrStale,
-  getRangeFromHeader,
-  getRequestHeader,
-  reqIs
-} from '../../packages/req/src'
-import { fresh } from '../../packages/req/src/fresh'
+  isRequestFresh,
+  isXhr,
+  reqIs,
+  requestHeader,
+  requestRange
+} from '../../packages/request/src'
+import { fresh } from '../../packages/request/src/fresh'
 import { runServer } from '../../test_helpers/runServer'
 
 describe('Request extensions', () => {
   describe('req.get(header)', () => {
     it('should return a specified header', async () => {
       const app = runServer((req, res) => {
-        res.end(getRequestHeader(req)('accept'))
+        res.end(requestHeader(req)('accept'))
       })
 
       await makeFetch(app)('/').expect('*/*')
     })
     it('should handle "referer"', async () => {
       const app = runServer((req, res) => {
-        res.end(getRequestHeader(req)('referrer'))
+        res.end(requestHeader(req)('referrer'))
       })
 
       await makeFetch(app)('/', {
@@ -39,7 +39,7 @@ describe('Request extensions', () => {
     })
     it('should handle "referrer"', async () => {
       const app = runServer((req, res) => {
-        res.end(getRequestHeader(req)('referrer'))
+        res.end(requestHeader(req)('referrer'))
       })
 
       await makeFetch(app)('/', {
@@ -51,8 +51,8 @@ describe('Request extensions', () => {
     })
     it('should handle "referer" alternate spelling when called with "referer"', async () => {
       const app = runServer((req, res) => {
-        // Use 'referer' spelling when calling getRequestHeader
-        res.end(getRequestHeader(req)('referer'))
+        // Use 'referer' spelling when calling requestHeader
+        res.end(requestHeader(req)('referer'))
       })
 
       await makeFetch(app)('/', {
@@ -66,7 +66,7 @@ describe('Request extensions', () => {
   describe('req.xhr', () => {
     it('should be false in node environment', async () => {
       const app = runServer((req, res) => {
-        res.end(`Browser request: ${checkIfXMLHttpRequest(req) ? 'yes' : 'no'}`)
+        res.end(`Browser request: ${isXhr(req) ? 'yes' : 'no'}`)
       })
 
       await makeFetch(app)('/').expect('Browser request: no')
@@ -203,7 +203,7 @@ describe('Request extensions', () => {
   describe('req.fresh', () => {
     it('returns false if method is neither GET nor HEAD', async () => {
       const app = runServer((req, res) => {
-        const fresh = getFreshOrStale(req, res)
+        const fresh = isRequestFresh(req, res)
 
         res.end(fresh ? 'fresh' : 'stale')
       })
@@ -217,7 +217,7 @@ describe('Request extensions', () => {
       const etag = '123'
       const app = runServer((req, res) => {
         res.setHeader('ETag', etag)
-        const fresh = getFreshOrStale(req, res)
+        const fresh = isRequestFresh(req, res)
 
         res.end(fresh ? 'fresh' : 'stale')
       })
@@ -233,7 +233,7 @@ describe('Request extensions', () => {
       const etag = '123'
       const app = runServer((req, res) => {
         res.setHeader('ETag', etag)
-        const fresh = getFreshOrStale(req, res)
+        const fresh = isRequestFresh(req, res)
 
         res.end(fresh ? 'fresh' : 'stale')
       })
@@ -248,7 +248,7 @@ describe('Request extensions', () => {
       const app = runServer((req, res) => {
         res.statusCode = 418
 
-        const fresh = getFreshOrStale(req, res)
+        const fresh = isRequestFresh(req, res)
 
         res.end(fresh ? 'fresh' : 'stale')
       })
@@ -380,7 +380,7 @@ describe('Request extensions', () => {
   describe('req.range', () => {
     it('should return parsed ranges', async () => {
       const app = runServer((req, res) => {
-        const range = getRangeFromHeader(req)
+        const range = requestRange(req)
         const array = range(300)
         expect(array).toContainEqual({ end: 299, start: 0 })
         expect(array).toHaveLength(1)
@@ -396,7 +396,7 @@ describe('Request extensions', () => {
     })
     it('should cap to the given size', async () => {
       const app = runServer((req, res) => {
-        const range = getRangeFromHeader(req)
+        const range = requestRange(req)
         const size = 300
         expect(range(size)?.[0].end).toBe(size - 1)
         res.end()
@@ -411,7 +411,7 @@ describe('Request extensions', () => {
     })
     it('should cap to the given size when open-ended', async () => {
       const app = runServer((req, res) => {
-        const range = getRangeFromHeader(req)
+        const range = requestRange(req)
         const size = 300
         expect(range(size)?.[0].end).toBe(size - 1)
         res.end()
@@ -426,7 +426,7 @@ describe('Request extensions', () => {
     })
     it('should have a .type', async () => {
       const app = runServer((req, res) => {
-        const range = getRangeFromHeader(req)
+        const range = requestRange(req)
         expect((range(300) as Ranges).type).toBe('bytes')
         res.end()
       })
@@ -440,7 +440,7 @@ describe('Request extensions', () => {
     })
     it('should accept any type', async () => {
       const app = runServer((req, res) => {
-        const range = getRangeFromHeader(req)
+        const range = requestRange(req)
         expect((range(300) as Ranges).type).toBe('any')
         res.end()
       })
@@ -454,7 +454,7 @@ describe('Request extensions', () => {
     })
     it('should return undefined if no range', async () => {
       const app = runServer((req, res) => {
-        const range = getRangeFromHeader(req)
+        const range = requestRange(req)
         expect(range(300)).toBeUndefined()
         res.end()
       })
@@ -465,7 +465,7 @@ describe('Request extensions', () => {
     describe('with options', () => {
       it('should return combined ranges if combine set to true', async () => {
         const app = runServer((req, res) => {
-          const range = getRangeFromHeader(req)
+          const range = requestRange(req)
           const array = range(300, { combine: true })
           expect(array).toContainEqual({ end: 299, start: 0 })
           expect(array).toHaveLength(1)
@@ -481,7 +481,7 @@ describe('Request extensions', () => {
       })
       it('should return separated ranges if combine set to false', async () => {
         const app = runServer((req, res) => {
-          const range = getRangeFromHeader(req)
+          const range = requestRange(req)
           const array = range(300, { combine: false })
           expect(array).toContainEqual({ end: 100, start: 0 })
           expect(array).toContainEqual({ end: 299, start: 101 })

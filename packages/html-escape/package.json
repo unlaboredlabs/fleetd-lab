@@ -1,13 +1,13 @@
 {
-  "name": "@tinyhttp/req",
-  "version": "2.2.10",
+  "name": "@tinyhttp/html-escape",
+  "version": "0.0.0",
   "type": "module",
-  "description": "request extensions for tinyhttp",
+  "description": "Escape special characters in a string for use in HTML",
   "homepage": "https://tinyhttp.v1rtl.site",
   "repository": {
     "type": "git",
     "url": "https://github.com/tinyhttp/tinyhttp.git",
-    "directory": "packages/req"
+    "directory": "packages/html-escape"
   },
   "types": "./dist/index.d.ts",
   "exports": "./dist/index.js",
@@ -17,22 +17,16 @@
     "web framework",
     "web",
     "backend",
-    "req",
-    "request"
+    "html",
+    "escape"
   ],
   "engines": {
-    "node": ">=14.13.1"
+    "node": ">=12.17.0"
   },
   "author": "v1rtl",
   "license": "MIT",
   "scripts": {
     "build": "tsc"
-  },
-  "dependencies": {
-    "@tinyhttp/accepts": "workspace:*",
-    "@tinyhttp/type-is": "workspace:*",
-    "@tinyhttp/url": "workspace:*",
-    "header-range-parser": "catalog:"
   },
   "files": [
     "dist"

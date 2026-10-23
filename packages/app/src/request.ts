@@ -4,11 +4,11 @@ import { isIP } from 'node:net'
 import type { ParsedUrlQuery } from 'node:querystring'
 import type { TLSSocket } from 'node:tls'
 import { all, compile, proxyaddr as proxyAddr, type Trust } from '@tinyhttp/proxy-addr'
-import type { RangeParserOptions, RangeParserRanges, URLParams } from '@tinyhttp/req'
+import type { RangeParserOptions, RangeParserRanges, URLParams } from '@tinyhttp/request'
 import type { Middleware } from '@tinyhttp/router'
 import type { App } from './app.js'
 
-export { getURLParams } from '@tinyhttp/req'
+export { getURLParams } from '@tinyhttp/request'
 
 export type Host = {
   hostname: string

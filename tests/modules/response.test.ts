@@ -7,17 +7,17 @@ import {
   attachment,
   clearCookie,
   download,
-  formatResponse,
-  getResponseHeader,
+  formatByAccept,
   redirect,
+  responseHeader,
   setContentType,
   setCookie,
   setHeader,
-  setLinksHeader,
-  setLocationHeader,
-  setVaryHeader
-} from '../../packages/res/src/index.js'
-import { acceptParams, escapeHTML, normalizeType } from '../../packages/res/src/util.js'
+  setLinks,
+  setLocation,
+  setVary
+} from '../../packages/response/src/index.js'
+import { acceptParams, normalizeType } from '../../packages/response/src/util.js'
 import { runServer } from '../../test_helpers/runServer'
 
 const __dirname = import.meta.dirname
@@ -72,7 +72,7 @@ describe('Response extensions', () => {
     it('should get a header with a specified field', async () => {
       const app = runServer((_, res) => {
         setHeader(res)('hello', 'World')
-        res.end(getResponseHeader(res)('hello'))
+        res.end(responseHeader(res)('hello'))
       })
 
       await makeFetch(app)('/').expect('World')
@@ -81,7 +81,7 @@ describe('Response extensions', () => {
   describe('res.vary(field)', () => {
     it('should set a "Vary" header properly', async () => {
       const app = runServer((_, res) => {
-        setVaryHeader(res)('User-Agent').end()
+        setVary(res)('User-Agent').end()
       })
 
       await makeFetch(app)('/').expect('Vary', 'User-Agent')
@@ -183,7 +183,7 @@ describe('Response extensions', () => {
   describe('res.format(obj)', () => {
     it('should send text by default', async () => {
       const app = runServer((req, res) => {
-        formatResponse(req, res, () => {})({
+        formatByAccept(req, res, () => {})({
           text: (_: Request, res: Response) => res.end('Hello World')
         }).end()
       })
@@ -192,7 +192,7 @@ describe('Response extensions', () => {
     })
     it('should send HTML if specified in "Accepts" header', async () => {
       const app = runServer((req, res) => {
-        formatResponse(req, res, () => {})({
+        formatByAccept(req, res, () => {})({
           text: (_: Request, res: Response) => res.end('Hello World'),
           html: (_: Request, res: Response) => res.end('<h1>Hello World</h1>')
         }).end()
@@ -208,7 +208,7 @@ describe('Response extensions', () => {
     })
     it('should throw 406 status when invalid MIME is specified', async () => {
       const app = runServer((req, res) => {
-        formatResponse(req, res, (err) => res.writeHead(err?.status as number).end(err?.message))({
+        formatByAccept(req, res, (err) => res.writeHead(err?.status as number).end(err?.message))({
           text: (_: Request, res: Response) => res.end('Hello World')
         }).end()
       })
@@ -221,7 +221,7 @@ describe('Response extensions', () => {
     })
     it('should call `default` as a function if specified', async () => {
       const app = runServer((req, res) => {
-        formatResponse(req, res, () => {})({
+        formatByAccept(req, res, () => {})({
           default: () => res.end('Hello World')
         }).end()
       })
@@ -230,7 +230,7 @@ describe('Response extensions', () => {
     })
     it('should return 406 when object has no keys', async () => {
       const app = runServer((req, res) => {
-        formatResponse(req, res, (err) => res.writeHead(err?.status as number).end(err?.message))({})
+        formatByAccept(req, res, (err) => res.writeHead(err?.status as number).end(err?.message))({})
       })
 
       await makeFetch(app)('/').expect(406, 'Not Acceptable')
@@ -497,7 +497,7 @@ describe('Response extensions', () => {
   describe('res.links(obj)', () => {
     it('should set "Links" header field', async () => {
       const app = runServer((_, res) => {
-        setLinksHeader(res)({
+        setLinks(res)({
           next: 'http://api.example.com/users?page=2',
           last: 'http://api.example.com/users?page=5'
         }).end()
@@ -512,12 +512,12 @@ describe('Response extensions', () => {
     })
     it('should set "Links" for multiple calls', async () => {
       const app = runServer((_, res) => {
-        setLinksHeader(res)({
+        setLinks(res)({
           next: 'http://api.example.com/users?page=2',
           last: 'http://api.example.com/users?page=5'
         })
 
-        setLinksHeader(res)({
+        setLinks(res)({
           prev: 'http://api.example.com/users?page=1'
         })
 
@@ -536,21 +536,21 @@ describe('Response extensions', () => {
   describe('res.location(url)', () => {
     it('sets the "Location" header', async () => {
       const app = runServer((req, res) => {
-        setLocationHeader(req, res)('https://example.com').end()
+        setLocation(req, res)('https://example.com').end()
       })
 
       await makeFetch(app)('/').expectHeader('Location', 'https://example.com').expectStatus(200)
     })
     it('should encode URL', async () => {
       const app = runServer((req, res) => {
-        setLocationHeader(req, res)('https://google.com?q=\u2603 §10').end()
+        setLocation(req, res)('https://google.com?q=\u2603 §10').end()
       })
 
       await makeFetch(app)('/').expectHeader('Location', 'https://google.com?q=%E2%98%83%20%C2%A710').expectStatus(200)
     })
     it('should not touch encoded sequences', async () => {
       const app = runServer((req, res) => {
-        setLocationHeader(req, res)('https://google.com?q=%A710').end()
+        setLocation(req, res)('https://google.com?q=%A710').end()
       })
 
       await makeFetch(app)('/').expectHeader('Location', 'https://google.com?q=%A710').expectStatus(200)
@@ -562,35 +562,35 @@ describe('Response extensions', () => {
     // navigate to `apple.com` — an open redirect.
     it('should encode a backslash smuggled into the authority', async () => {
       const app = runServer((req, res) => {
-        setLocationHeader(req, res)('http://google.com\\@apple.com').end()
+        setLocation(req, res)('http://google.com\\@apple.com').end()
       })
 
       await makeFetch(app)('/').expectHeader('Location', 'http://google.com%5C@apple.com').expectStatus(200)
     })
     it('should encode an authority backslash in a scheme-relative URL', async () => {
       const app = runServer((req, res) => {
-        setLocationHeader(req, res)('//google.com\\@apple.com').end()
+        setLocation(req, res)('//google.com\\@apple.com').end()
       })
 
       await makeFetch(app)('/').expectHeader('Location', '//google.com%5C@apple.com').expectStatus(200)
     })
     it('should encode backslashes in the path after the authority', async () => {
       const app = runServer((req, res) => {
-        setLocationHeader(req, res)('https://google.com/foo\\bar\\baz').end()
+        setLocation(req, res)('https://google.com/foo\\bar\\baz').end()
       })
 
       await makeFetch(app)('/').expectHeader('Location', 'https://google.com/foo%5Cbar%5Cbaz').expectStatus(200)
     })
     it('should encode every backslash when the authority is followed by more', async () => {
       const app = runServer((req, res) => {
-        setLocationHeader(req, res)('https://google.com\\@app\\l\\e.com').end()
+        setLocation(req, res)('https://google.com\\@app\\l\\e.com').end()
       })
 
       await makeFetch(app)('/').expectHeader('Location', 'https://google.com%5C@app%5Cl%5Ce.com').expectStatus(200)
     })
     it('should encode characters in the fragment', async () => {
       const app = runServer((req, res) => {
-        setLocationHeader(req, res)('https://google.com#\u2603 §10').end()
+        setLocation(req, res)('https://google.com#\u2603 §10').end()
       })
 
       await makeFetch(app)('/').expectHeader('Location', 'https://google.com#%E2%98%83%20%C2%A710').expectStatus(200)
@@ -598,7 +598,7 @@ describe('Response extensions', () => {
     describe('"url" is back', () => {
       it('should set location from "Referer" header', async () => {
         const app = runServer((req, res) => {
-          setLocationHeader(req, res)('back').end()
+          setLocation(req, res)('back').end()
         })
 
         await makeFetch(app)('/', {
@@ -611,7 +611,7 @@ describe('Response extensions', () => {
       })
       it('should set location from "Referrer" header', async () => {
         const app = runServer((req, res) => {
-          setLocationHeader(req, res)('back').end()
+          setLocation(req, res)('back').end()
         })
 
         await makeFetch(app)('/', {
@@ -624,7 +624,7 @@ describe('Response extensions', () => {
       })
       it('should prefer "Referrer" header', async () => {
         const app = runServer((req, res) => {
-          setLocationHeader(req, res)('back').end()
+          setLocation(req, res)('back').end()
         })
 
         await makeFetch(app)('/', {
@@ -638,7 +638,7 @@ describe('Response extensions', () => {
       })
       it('should set the header to "/" without referrer', async () => {
         const app = runServer((req, res) => {
-          setLocationHeader(req, res)('back').end()
+          setLocation(req, res)('back').end()
         })
 
         await makeFetch(app)('/').expect('Location', '/').expectStatus(200)
@@ -647,189 +647,7 @@ describe('Response extensions', () => {
   })
 })
 
-/**
- * Taken from https://github.com/component/escape-html/blob/master/test/index.js
- */
 describe('util', () => {
-  describe('escapeHTML', () => {
-    it('when string is undefined should return "undefined"', () => {
-      expect(escapeHTML(undefined as unknown as string)).toBe('undefined')
-    })
-
-    it('when string is null should return "null"', () => {
-      expect(escapeHTML(null as unknown as string)).toBe('null')
-    })
-
-    it('when string is a number should return stringified number', () => {
-      expect(escapeHTML(42 as unknown as string)).toBe('42')
-    })
-
-    it('when string is an object should return "[object Object]"', () => {
-      expect(escapeHTML({} as string)).toBe('[object Object]')
-    })
-
-    describe("when string contains '\"'", () => {
-      it('as only character it should replace with "&quot;"', () => {
-        expect(escapeHTML('"')).toBe('&quot;')
-      })
-
-      it('as first character it should replace with "&quot;"', () => {
-        expect(escapeHTML('"bar')).toBe('&quot;bar')
-      })
-
-      describe('as last character', () => {
-        it('should replace with "&quot;"', () => {
-          expect(escapeHTML('foo"')).toBe('foo&quot;')
-        })
-      })
-
-      describe('as middle character', () => {
-        it('should replace with "&quot;"', () => {
-          expect(escapeHTML('foo"bar')).toBe('foo&quot;bar')
-        })
-      })
-
-      describe('multiple times', () => {
-        it('should replace all occurrances with "&quot;"', () => {
-          expect(escapeHTML('foo""bar')).toBe('foo&quot;&quot;bar')
-        })
-      })
-    })
-
-    describe('when string contains "&"', () => {
-      describe('as only character', () => {
-        it('should replace with "&amp;"', () => {
-          expect(escapeHTML('&')).toBe('&amp;')
-        })
-      })
-
-      describe('as first character', () => {
-        it('should replace with "&amp;"', () => {
-          expect(escapeHTML('&bar')).toBe('&amp;bar')
-        })
-      })
-
-      describe('as last character', () => {
-        it('should replace with "&amp;"', () => {
-          expect(escapeHTML('foo&')).toBe('foo&amp;')
-        })
-      })
-
-      describe('as middle character', () => {
-        it('should replace with "&amp;"', () => {
-          expect(escapeHTML('foo&bar')).toBe('foo&amp;bar')
-        })
-      })
-
-      describe('multiple times', () => {
-        it('should replace all occurrances with "&amp;"', () => {
-          expect(escapeHTML('foo&&bar')).toBe('foo&amp;&amp;bar')
-        })
-      })
-    })
-
-    describe('when string contains "\'"', () => {
-      describe('as only character', () => {
-        it('should replace with "&#39;"', () => {
-          expect(escapeHTML("'")).toBe('&#39;')
-        })
-      })
-
-      describe('as first character', () => {
-        it('should replace with "&#39;"', () => {
-          expect(escapeHTML("'bar")).toBe('&#39;bar')
-        })
-      })
-
-      describe('as last character', () => {
-        it('should replace with "&#39;"', () => {
-          expect(escapeHTML("foo'")).toBe('foo&#39;')
-        })
-      })
-
-      describe('as middle character', () => {
-        it('should replace with "&#39;"', () => {
-          expect(escapeHTML("foo'bar")).toBe('foo&#39;bar')
-        })
-      })
-
-      describe('multiple times', () => {
-        it('should replace all occurrances with "&#39;"', () => {
-          expect(escapeHTML("foo''bar")).toBe('foo&#39;&#39;bar')
-        })
-      })
-    })
-
-    describe('when string contains "<"', () => {
-      describe('as only character', () => {
-        it('should replace with "&lt;"', () => {
-          expect(escapeHTML('<')).toBe('&lt;')
-        })
-      })
-
-      describe('as first character', () => {
-        it('should replace with "&lt;"', () => {
-          expect(escapeHTML('<bar')).toBe('&lt;bar')
-        })
-      })
-
-      describe('as last character', () => {
-        it('should replace with "&lt;"', () => {
-          expect(escapeHTML('foo<')).toBe('foo&lt;')
-        })
-      })
-
-      describe('as middle character', () => {
-        it('should replace with "&lt;"', () => {
-          expect(escapeHTML('foo<bar')).toBe('foo&lt;bar')
-        })
-      })
-
-      describe('multiple times', () => {
-        it('should replace all occurrances with "&lt;"', () => {
-          expect(escapeHTML('foo<<bar')).toBe('foo&lt;&lt;bar')
-        })
-      })
-    })
-
-    describe('when string contains ">"', () => {
-      describe('as only character', () => {
-        it('should replace with "&gt;"', () => {
-          expect(escapeHTML('>')).toBe('&gt;')
-        })
-      })
-
-      describe('as first character', () => {
-        it('should replace with "&gt;"', () => {
-          expect(escapeHTML('>bar')).toBe('&gt;bar')
-        })
-      })
-
-      describe('as last character', () => {
-        it('should replace with "&gt;"', () => {
-          expect(escapeHTML('foo>')).toBe('foo&gt;')
-        })
-      })
-
-      describe('as middle character', () => {
-        it('should replace with "&gt;"', () => {
-          expect(escapeHTML('foo>bar')).toBe('foo&gt;bar')
-        })
-      })
-
-      describe('multiple times', () => {
-        it('should replace all occurrances with "&gt;"', () => {
-          expect(escapeHTML('foo>>bar')).toBe('foo&gt;&gt;bar')
-        })
-      })
-    })
-
-    describe('when escaped character mixed', () => {
-      it('should escape all occurrances', () => {
-        expect(escapeHTML('&foo <> bar "fizz" l\'a')).toBe('&amp;foo &lt;&gt; bar &quot;fizz&quot; l&#39;a')
-      })
-    })
-  })
   describe('acceptParams', () => {
     it('parses a string with only a value', () => {
       const result = acceptParams('text/html')

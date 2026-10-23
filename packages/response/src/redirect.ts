@@ -1,7 +1,7 @@
 import { type IncomingMessage as Req, type ServerResponse as Res, STATUS_CODES } from 'node:http'
-import { formatResponse } from './format.js'
-import { setLocationHeader } from './headers.js'
-import { escapeHTML } from './util.js'
+import { escapeHTML } from '@tinyhttp/html-escape'
+import { formatByAccept } from './format.js'
+import { setLocation } from './headers.js'
 
 type next = (err?: any) => void
 
@@ -17,9 +17,9 @@ export const redirect =
 
     let body = ''
 
-    address = setLocationHeader(req, res)(address).getHeader('Location') as string
+    address = setLocation(req, res)(address).getHeader('Location') as string
 
-    formatResponse(
+    formatByAccept(
       req,
       res,
       next

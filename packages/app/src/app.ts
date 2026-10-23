@@ -1,5 +1,5 @@
 import { createServer } from 'node:http'
-import { getPathname } from '@tinyhttp/req'
+import { getPathname } from '@tinyhttp/request'
 import type { Handler, Middleware, NextFunction, UseMethodParams } from '@tinyhttp/router'
 import { pushMiddleware, Router } from '@tinyhttp/router'
 import { parse as rg } from 'regexparam'

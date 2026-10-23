@@ -1,6 +1,6 @@
 import type { IncomingMessage as Req, ServerResponse as Res } from 'node:http'
-import { getAccepts } from '@tinyhttp/req'
-import { setVaryHeader } from './headers.js'
+import { getAccepts } from '@tinyhttp/request'
+import { setVary } from './headers.js'
 import { normalizeType, normalizeTypes } from './util.js'
 
 export type FormatProps = {
@@ -15,7 +15,7 @@ export type FormatError = Error & {
 
 type next = (err?: FormatError) => void
 
-export const formatResponse =
+export const formatByAccept =
   <Request extends Req = Req, Response extends Res = Res, Next extends next = next>(
     req: Request,
     res: Response,
@@ -30,7 +30,7 @@ export const formatResponse =
 
     const key = keys.length > 0 ? (getAccepts(req)(...keys) as string) : false
 
-    setVaryHeader(res)('Accept')
+    setVary(res)('Accept')
 
     if (key) {
       res.setHeader('Content-Type', normalizeType(key).value)
