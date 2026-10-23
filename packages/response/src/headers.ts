@@ -1,6 +1,6 @@
 import type { OutgoingHttpHeaders, IncomingMessage as Req, ServerResponse as Res } from 'node:http'
 import { encodeUrl } from '@tinyhttp/encode-url'
-import { getRequestHeader } from '@tinyhttp/req'
+import { requestHeader } from '@tinyhttp/request'
 import { vary } from '@tinyhttp/vary'
 import { lookup } from 'mrmime'
 
@@ -28,12 +28,12 @@ export const setHeader =
     }
     return res
   }
-export const setLocationHeader =
+export const setLocation =
   <Request extends Req = Req, Response extends Res = Res>(req: Request, res: Response) =>
   (url: string): Response => {
     let loc = url
     // "back" is an alias for the referrer
-    if (url === 'back') loc = (getRequestHeader(req)('Referrer') as string) || '/'
+    if (url === 'back') loc = (requestHeader(req)('Referrer') as string) || '/'
     const match = schemeAndHostRegExp.exec(loc)
     // Encode everything after the scheme + authority. The `schemeAndHostRegExp`
     // match stops at the first `\`, `/`, `?` or `#`, so any of those delimiters
@@ -46,12 +46,12 @@ export const setLocationHeader =
     res.setHeader('Location', loc.slice(0, pos) + encodeUrl(loc.slice(pos)))
     return res
   }
-export const getResponseHeader = <Response extends Res = Res>(res: Response) => {
+export const responseHeader = <Response extends Res = Res>(res: Response) => {
   return <HeaderName extends string>(field: HeaderName): OutgoingHttpHeaders[HeaderName] => {
     return res.getHeader(field)
   }
 }
-export const setLinksHeader =
+export const setLinks =
   <Response extends Res = Res>(res: Response) =>
   (links: { [key: string]: string }): Response => {
     let link = res.getHeader('Link') || ''
@@ -65,7 +65,7 @@ export const setLinksHeader =
     )
     return res
   }
-export const setVaryHeader =
+export const setVary =
   <Response extends Res = Res>(res: Response) =>
   (field: string): Response => {
     vary(res, field)

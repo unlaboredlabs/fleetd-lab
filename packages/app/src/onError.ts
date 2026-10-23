@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer'
 import { STATUS_CODES } from 'node:http'
-import { escapeHTML } from '@tinyhttp/res'
+import { escapeHTML } from '@tinyhttp/html-escape'
 import type { NextFunction } from '@tinyhttp/router'
 import type { App } from './app.js'
 import type { Request } from './request.js'

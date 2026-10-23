@@ -14,8 +14,8 @@ This is a **pnpm monorepo** with packages in the `packages/` directory:
 
 - **`@tinyhttp/app`** - Core application framework (main package)
 - **`@tinyhttp/router`** - Routing functionality
-- **`@tinyhttp/req`** - Request extensions
-- **`@tinyhttp/res`** - Response extensions
+- **`@tinyhttp/request`** - Request extensions
+- **`@tinyhttp/response`** - Response extensions
 - **Other packages** - Utilities like cookie handling, proxy-addr, content-disposition, etag, etc.
 
 Each package follows this structure:
@@ -96,8 +96,8 @@ Handles route matching and middleware execution. Uses `regexparam` for path-to-r
 
 ### Request/Response Extensions
 
-- **Request** (`packages/req/`) - Extensions like `req.accepts()`, `req.get()`, `req.is()`, etc.
-- **Response** (`packages/res/`) - Extensions like `res.send()`, `res.json()`, `res.status()`, etc.
+- **Request** (`packages/request/`) - Extensions like `req.accepts()`, `req.get()`, `req.is()`, etc.
+- **Response** (`packages/response/`) - Extensions like `res.send()`, `res.json()`, `res.status()`, etc.
 
 These are applied to Node's IncomingMessage and ServerResponse via extension functions.
 
@@ -151,9 +151,9 @@ pnpm prerelease
 
 | Node.js Version | Packages | Constraining Feature |
 |-----------------|----------|---------------------|
-| `>=12.17.0` | content-disposition, cookie, encode-url, forwarded | ES2019 |
+| `>=12.17.0` | content-disposition, cookie, encode-url, forwarded, html-escape | ES2019 |
 | `>=14.0.0` | router | `?.` and `??` (ES2020) |
-| `>=14.13.1` | accepts, cookie-signature, etag, jsonp, rate-limit, req, res, send, type-is, url | `node:` prefix |
+| `>=14.13.1` | accepts, cookie-signature, etag, jsonp, rate-limit, request, response, send, type-is, url | `node:` prefix |
 | `>=16.10.0` | **app**, dotenv, proxy-addr | `Object.hasOwn()` (ES2022) |
 
 ## Key Dependencies

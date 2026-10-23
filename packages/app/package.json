@@ -34,9 +34,10 @@
   "dependencies": {
     "@tinyhttp/accepts": "workspace:^",
     "@tinyhttp/cookie": "workspace:*",
+    "@tinyhttp/html-escape": "workspace:*",
     "@tinyhttp/proxy-addr": "workspace:*",
-    "@tinyhttp/req": "workspace:*",
-    "@tinyhttp/res": "workspace:*",
+    "@tinyhttp/request": "workspace:*",
+    "@tinyhttp/response": "workspace:*",
     "@tinyhttp/router": "workspace:*",
     "regexparam": "catalog:"
   },
