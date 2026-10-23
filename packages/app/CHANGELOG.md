@@ -4,20 +4,6 @@
 
 ### Patch Changes
 
-- 4f494ae: fix: only match GET routes for HEAD requests
-  
-  A HEAD request matched the routes of every method, so it ran a `POST`, `PUT` or
-  `DELETE` handler registered on the requested path when no `GET` handler came
-  before it. A HEAD request now matches the `GET`, `HEAD` and `all` routes only,
-  the same way as express.
-- 43d086f: fix: do not percent-decode the host
-  
-  The `Host`, `:authority` and `X-Forwarded-Host` headers were passed through
-  `decodeURIComponent` before deriving `req.hostname`, `req.port` and
-  `req.subdomains`. A host is not percent-encoded, so `Host: a%2Eb.com` gave
-  `req.hostname` `a.b.com`, a host the request was not sent to, and a malformed
-  escape such as `Host: %` failed the request with a 500. The host is now only
-  lowercased, the same way as express.
 - 89dbb01: fix: strip the raw mount path from `req.url` when its params are percent-encoded
   
   The prefix stripped from `req.url` for a middleware or sub-app mounted on a path
@@ -34,14 +20,6 @@
   addresses down to their last group: `2001:db8:85a3::8a2e:370:7334` became
   `7334` and `::1` became `1`, so unrelated IPv6 clients could share the same
   `req.ip`. Only the prefix of IPv4-mapped addresses is stripped now.
-- aa54fc4: fix: derive `req.protocol` and `req.secure` from the TLS socket
-  
-  `getProtocol` read `req.secure` to tell whether the connection is encrypted, but
-  `req.secure` is only set from the result of `getProtocol`, so it was never set
-  at that point. A request to an HTTPS server got `req.protocol` `http` and
-  `req.secure` `false` unless a trusted proxy sent `X-Forwarded-Proto`. The
-  protocol is now derived from the socket being encrypted, the same way as
-  express.
 - 00f5f9b: fix: run the remaining middleware after a middleware rewrites `req.url`
   
   When a middleware rewrote `req.url` and called `next()`, the request was

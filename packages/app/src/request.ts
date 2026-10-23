@@ -22,7 +22,7 @@ const trustRemoteAddress = ({ socket }: Pick<Request, 'headers' | 'socket'>, tru
 }
 
 export const getProtocol = (req: Request, trust: Trust): Protocol => {
-  const proto = `http${(req.socket as TLSSocket).encrypted ? 's' : ''}`
+  const proto = `http${req.secure ? 's' : ''}`
 
   if (!trustRemoteAddress(req, trust)) return proto
 
@@ -33,7 +33,7 @@ export const getProtocol = (req: Request, trust: Trust): Protocol => {
   return index !== -1 ? header.substring(0, index).trim() : header.trim()
 }
 
-const normalizeHostString = (host: string): string => host.toLowerCase().normalize()
+const normalizeHostString = (host: string): string => decodeURIComponent(host).toLowerCase().normalize()
 
 const getAuthorityHeaderHostString = (req: Request): string | undefined => {
   const authority = req.get(':authority')
