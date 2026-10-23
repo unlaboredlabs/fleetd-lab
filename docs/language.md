@@ -55,7 +55,7 @@ See docs for [dialect][] option.
 [ibm db2]: https://www.ibm.com/analytics/us/en/technology/db2/
 [ibm db2i]: https://www.ibm.com/docs/en/i/7.5?topic=overview-db2-i
 [duckdb]: https://duckdb.org/
-[sap hana]: https://help.sap.com/docs/HANA_SERVICE_CF/7c78579ce9b14a669c1f3295b0d8ca16/b4b0eec1968f41a099c828a4a6c8ca0f.html
+[sap hana]: https://help.sap.com/docs/SAP_HANA_PLATFORM/4fe29514fd584807ac9f2a04f6754767/b4b0eec1968f41a099c828a4a6c8ca0f.html
 [apache hive]: https://hive.apache.org/
 [mariadb]: https://mariadb.com/
 [mysql]: https://www.mysql.com/
