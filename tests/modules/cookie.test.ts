@@ -39,6 +39,11 @@ describe('Cookie serializing', () => {
   it('should serialize basic cookie', () => {
     expect(cookie.serialize('foo', 'bar')).toBe('foo=bar')
   })
+  it('should not modify the options object', () => {
+    const opts = { path: '/' }
+    expect(cookie.serialize('foo', 'bar', opts)).toBe('foo=bar; Path=/')
+    expect(opts).toEqual({ path: '/' })
+  })
   it('should "Path" in cookie', () => {
     expect(
       cookie.serialize('foo', 'bar', {

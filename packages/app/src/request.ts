@@ -21,8 +21,11 @@ const trustRemoteAddress = ({ socket }: Pick<Request, 'headers' | 'socket'>, tru
   return trust(val, 0)
 }
 
+const isEncrypted = (req: Pick<Request, 'socket' | 'secure'>): boolean =>
+  Boolean((req.socket as TLSSocket | undefined)?.encrypted) || req.secure === true
+
 export const getProtocol = (req: Request, trust: Trust): Protocol => {
-  const proto = `http${req.secure ? 's' : ''}`
+  const proto = `http${isEncrypted(req) ? 's' : ''}`
 
   if (!trustRemoteAddress(req, trust)) return proto
 
@@ -33,10 +36,15 @@ export const getProtocol = (req: Request, trust: Trust): Protocol => {
   return index !== -1 ? header.substring(0, index).trim() : header.trim()
 }
 
-const normalizeHostString = (host: string): string => decodeURIComponent(host).toLowerCase().normalize()
+// The host is sent as is on the wire and is never percent-decoded
+const normalizeHostString = (host: string): string => host.toLowerCase()
+
+// `req.get` is only set once the request extensions are applied
+const getHeader = (req: Request, header: string): string | string[] | undefined =>
+  typeof req.get === 'function' ? req.get(header) : req.headers[header]
 
 const getAuthorityHeaderHostString = (req: Request): string | undefined => {
-  const authority = req.get(':authority')
+  const authority = getHeader(req, ':authority')
   if (Array.isArray(authority) || !authority) return undefined
 
   const index = authority.indexOf('@')
@@ -45,7 +53,7 @@ const getAuthorityHeaderHostString = (req: Request): string | undefined => {
 }
 
 const getForwardedHeaderHostString = (req: Request): string | undefined => {
-  const forwardedHost = req.get('x-forwarded-host')
+  const forwardedHost = getHeader(req, 'x-forwarded-host')
   if (Array.isArray(forwardedHost)) return undefined
   if (!forwardedHost) return undefined
 
@@ -53,8 +61,8 @@ const getForwardedHeaderHostString = (req: Request): string | undefined => {
 }
 
 const getDefaultHeaderHostString = (req: Request): string | undefined => {
-  const host = req.get('host')
-  if (!host || host.indexOf(',') !== -1) return undefined
+  const host = getHeader(req, 'host')
+  if (!host || Array.isArray(host) || host.indexOf(',') !== -1) return undefined
 
   return normalizeHostString(host)
 }

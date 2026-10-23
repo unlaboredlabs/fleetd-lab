@@ -45,6 +45,45 @@ describe('rate-limit', () => {
       expect(store.resetKey_was_called).toBeTruthy()
     })
 
+    it('should key requests by the socket address when req.ip is not set', async () => {
+      const keys: string[] = []
+      const store = new MockStore()
+      const incr = store.incr
+      store.incr = async (key, cb) => {
+        keys.push(key)
+        return incr(key, cb)
+      }
+
+      // networkExtensions is off, so req.ip is not set
+      const app = new App()
+      let remoteAddress: string | undefined
+      app.use(rateLimit({ store }))
+      app.get('/', (req, res) => {
+        remoteAddress = req.socket.remoteAddress
+        res.send('response!')
+      })
+
+      await makeFetch(app.listen())('/').expect(200)
+      expect(remoteAddress).toBeTruthy()
+      expect(keys).toEqual([remoteAddress])
+    })
+
+    it('should limit each client separately by default', async () => {
+      const limiter = rateLimit({ max: 1, headers: false })
+      const client = (ip?: string, remoteAddress?: string) =>
+        ({ ip, headers: {}, socket: { remoteAddress } }) as unknown as Parameters<typeof limiter>[0]
+      const res = { on: () => {} } as unknown as Parameters<typeof limiter>[1]
+      const run = async (req: Parameters<typeof limiter>[0]) => {
+        const next = vi.fn()
+        await limiter(req, res, next)
+        return next.mock.calls.length === 1 && next.mock.calls[0].length === 0
+      }
+
+      expect(await run(client(undefined, '10.0.0.1'))).toBe(true)
+      expect(await run(client(undefined, '10.0.0.2'))).toBe(true)
+      expect(await run(client('10.0.0.3', '10.0.0.1'))).toBe(true)
+    })
+
     it('should refuse additional connections once IP has reached the max', async () => {
       const app = createAppWith(
         rateLimit({

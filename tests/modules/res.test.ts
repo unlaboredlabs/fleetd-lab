@@ -397,6 +397,23 @@ describe('Response extensions', () => {
 
       await makeFetch(app)('/').expect(200)
     })
+    it('should not modify the options object it is given', async () => {
+      const opts = { maxAge: 60000 }
+      let cookies: string[] = []
+
+      const app = runServer((req, res) => {
+        setCookie(req, res)('a', 'b', opts)
+        setCookie(req, res)('a', 'b', opts)
+        cookies = res.getHeader('Set-Cookie') as string[]
+        res.end()
+      })
+
+      await makeFetch(app)('/').expect(200)
+
+      expect(opts).toEqual({ maxAge: 60000 })
+      expect(cookies).toHaveLength(2)
+      for (const c of cookies) expect(c).toMatch(/^a=b; Max-Age=60; Path=\/; Expires=/)
+    })
     it('should append to Set-Cookie if called multiple times', async () => {
       const app = runServer((req, res) => {
         setCookie(req, res)('hello', 'world')

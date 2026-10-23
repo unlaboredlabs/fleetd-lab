@@ -68,11 +68,11 @@ export type SerializeOptions = Partial<{
 }>
 
 export function serialize(name: string, val: string, opt: SerializeOptions = {}): string {
-  if (!opt.encode) opt.encode = encodeURIComponent
+  const encode = opt.encode || encodeURIComponent
 
   if (!fieldContentRegExp.test(name)) throw new TypeError('argument name is invalid')
 
-  const value = opt.encode(val)
+  const value = encode(val)
 
   if (value && !fieldContentRegExp.test(value)) throw new TypeError('argument val is invalid')
 
