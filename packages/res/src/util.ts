@@ -3,18 +3,20 @@ import { lookup } from 'mrmime'
 export type NormalizedType = {
   value: string
   quality?: number
-  params: Record<string, string>
+  params: Record<string, string | undefined>
   originalIndex?: number
 }
 
 export function acceptParams(str: string, index?: number): NormalizedType {
-  const parts = str.split(/ *; */)
-  const ret: NormalizedType = { value: parts[0], quality: 1, params: {}, originalIndex: index }
+  // split() always returns at least one element, so the '' defaults never apply
+  const [value = '', ...parts] = str.split(/ *; */)
+  const ret: NormalizedType = { value, quality: 1, params: {}, originalIndex: index }
 
-  for (const part of parts.slice(1)) {
-    const pms = part.split(/ *= */)
-    if ('q' === pms[0]) ret.quality = Number.parseFloat(pms[1])
-    else ret.params[pms[0]] = pms[1]
+  for (const part of parts) {
+    const [key = '', val] = part.split(/ *= */)
+    // a param without '=' has no value: parseFloat(undefined) and parseFloat('') are both NaN
+    if ('q' === key) ret.quality = Number.parseFloat(val ?? '')
+    else ret.params[key] = val
   }
 
   return ret

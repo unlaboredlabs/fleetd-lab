@@ -29,14 +29,14 @@ export const download =
     }
 
     // set Content-Disposition when file is sent
-    const headers = {
+    const headers: Record<string, string> = {
       'Content-Disposition': contentDisposition(name || basename(path))
     }
 
     // merge user-provided headers
     if (opts?.headers) {
-      for (const key of Object.keys(opts.headers)) {
-        if (key.toLowerCase() !== 'content-disposition') headers[key] = opts.headers[key]
+      for (const [key, value] of Object.entries(opts.headers)) {
+        if (key.toLowerCase() !== 'content-disposition') headers[key] = value
       }
     }
 
