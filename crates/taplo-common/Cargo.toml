@@ -1,0 +1,59 @@
+[package]
+name         = "taplo-common"
+description  = "Shared code for taplo utilities."
+version      = "0.6.0"
+rust-version = { workspace = true }
+authors      = { workspace = true }
+edition      = { workspace = true }
+homepage     = { workspace = true }
+license      = { workspace = true }
+repository   = { workspace = true }
+
+[features]
+# default-tls enables native-tls but without enabling native-tls specific features.
+native-tls = ["reqwest/default-tls"]
+rustls-tls = ["reqwest/rustls-tls"]
+schema     = []
+reqwest    = ["dep:reqwest"]
+
+[dependencies]
+taplo = { version = "0.14.0", path = "../taplo", features = ["schema"] }
+
+ahash              = { workspace = true, features = ["serde"] }
+anyhow             = { workspace = true }
+arc-swap           = { workspace = true }
+async-recursion    = { version = "1.0.0" }
+async-trait        = { workspace = true }
+futures            = { workspace = true }
+glob               = { workspace = true }
+globset            = { workspace = true }
+hex                = { workspace = true }
+indexmap           = { workspace = true, features = ["rayon", "serde"] }
+itertools          = { workspace = true }
+json_value_merge   = { version = "2.0.0" }
+jsonschema         = { version = "0.17.1", default-features = false }
+lru                = { version = "0.11.1" }
+parking_lot        = { workspace = true }
+percent-encoding   = { version = "2.1.0" }
+regex              = { workspace = true }
+reqwest            = { workspace = true, features = ["json"], optional = true }
+schemars           = { workspace = true, features = ["url"] }
+semver             = { version = "1.0.5", features = ["serde"] }
+serde              = { workspace = true, features = ["derive"] }
+serde_json         = { workspace = true, features = ["preserve_order"] }
+sha1               = { workspace = true }
+tap                = { workspace = true }
+thiserror          = { workspace = true }
+time               = { workspace = true, features = ["serde"] }
+tracing            = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+url                = { workspace = true, features = ["serde"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true, features = ["fs", "io-std", "io-util", "parking_lot", "rt", "sync", "time"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+tokio = { workspace = true, features = ["io-util", "parking_lot", "sync"] }
+
+[package.metadata.auto-tag]
+enabled = true

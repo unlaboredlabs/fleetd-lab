@@ -1,0 +1,46 @@
+[package]
+name         = "taplo-lsp"
+description  = "Language server for Taplo"
+version      = "0.8.0"
+rust-version = { workspace = true }
+authors      = { workspace = true }
+edition      = { workspace = true }
+homepage     = { workspace = true }
+license      = { workspace = true }
+repository   = { workspace = true }
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default    = ["rustls-tls"]
+native-tls = ["taplo-common/native-tls"]
+rustls-tls = ["taplo-common/rustls-tls"]
+
+[dependencies]
+lsp-async-stub = { version = "0.7.0", path = "../lsp-async-stub" }
+taplo          = { version = "0.14.0", path = "../taplo", features = ["serde"] }
+taplo-common   = { version = "0.6.0", path = "../taplo-common", features = ["schema", "reqwest"] }
+
+anyhow      = { workspace = true }
+arc-swap    = { workspace = true }
+either      = { workspace = true }
+figment     = { version = "0.10.6", features = ["json"] }
+futures     = { workspace = true }
+indexmap    = { workspace = true, features = ["serde"] }
+itertools   = { workspace = true }
+lsp-types   = { version = "0.93.0", features = ["proposed"] }
+once_cell   = { workspace = true }
+parking_lot = { workspace = true }
+regex       = { workspace = true }
+reqwest     = { workspace = true, features = ["json"] }
+schemars    = { workspace = true }
+serde       = { workspace = true, features = ["derive"] }
+serde_json  = { workspace = true, features = ["preserve_order"] }
+tap         = { workspace = true }
+time        = { workspace = true, features = ["formatting", "parsing"] }
+toml        = { workspace = true }
+tracing     = { workspace = true }
+
+[package.metadata.auto-tag]
+enabled = true

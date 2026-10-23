@@ -1,0 +1,36 @@
+{
+  "name": "@taplo/lsp",
+  "version": "0.8.1",
+  "description": "A JavaScript wrapper for the Taplo TOML language server.",
+  "scripts": {
+    "build": "yarn rollup --silent -c rollup.config.mjs",
+    "prepublish": "RELEASE=true yarn build"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "homepage": "https://taplo.tamasfe.dev",
+  "repository": "https://github.com/tamasfe/taplo",
+  "author": {
+    "name": "tamasfe",
+    "url": "https://github.com/tamasfe"
+  },
+  "license": "MIT",
+  "autoTag": {
+    "enabled": true
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^25.0.7",
+    "@rollup/plugin-node-resolve": "^15.2.3",
+    "@rollup/plugin-typescript": "^12.1.1",
+    "@types/node": "^20.11.9",
+    "@wasm-tool/rollup-plugin-rust": "^2.4.5",
+    "esbuild": "^0.20.0",
+    "rollup": "^4.9.6",
+    "rollup-plugin-esbuild": "^6.1.1",
+    "tslib": "^2.6.2",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "@taplo/core": "^0.2.0"
+  }
+}
