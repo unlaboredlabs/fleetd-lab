@@ -1,7 +1,8 @@
+import type { ServerResponse } from 'node:http'
 import { makeFetch } from 'supertest-fetch'
 import { describe, expect, it, vi } from 'vitest'
 import { App } from '../../../packages/app/src'
-import { rateLimit } from '../../../packages/rate-limit/src'
+import { type RequestWithRateLimit, rateLimit } from '../../../packages/rate-limit/src'
 
 function createAppWith(middleware) {
   const app = new App()
@@ -362,6 +363,57 @@ describe('rate-limit decrement guards', () => {
     await makeFetch(app.listen())('/').expect(500)
     // incr +1, decrement -1 exactly once → counter 0
     expect(store.counter).toBe(0)
+  })
+})
+
+describe('rate-limit default keyGenerator', () => {
+  const mockReq = (remoteAddress: string, ip?: string) =>
+    ({ ip, socket: { remoteAddress } }) as unknown as RequestWithRateLimit
+  const mockRes = () => ({ headersSent: true }) as ServerResponse
+  const recordingStore = () => {
+    const keys: string[] = []
+    return {
+      keys,
+      incr: (key: string, cb) => {
+        keys.push(key)
+        cb(null, keys.filter((k) => k === key).length, new Date(Date.now() + 5000))
+      },
+      decrement: () => {},
+      resetKey: () => {},
+      resetAll: () => {}
+    }
+  }
+
+  it('should not share a limit between clients when req.ip is not set (networkExtensions off)', async () => {
+    const store = recordingStore()
+    const limiter = rateLimit({ max: 1, store })
+    const next = vi.fn()
+
+    await limiter(mockReq('10.0.0.1'), mockRes(), next)
+    await limiter(mockReq('10.0.0.2'), mockRes(), next)
+
+    expect(store.keys).toEqual(['10.0.0.1', '10.0.0.2'])
+    expect(next).toHaveBeenCalledTimes(2)
+  })
+
+  it('should prefer req.ip over the socket address when set', async () => {
+    const store = recordingStore()
+    const limiter = rateLimit({ store })
+
+    await limiter(mockReq('10.0.0.1', '203.0.113.7'), mockRes(), () => {})
+
+    expect(store.keys).toEqual(['203.0.113.7'])
+  })
+
+  it('should key real requests by socket address with networkExtensions off', async () => {
+    const store = recordingStore()
+    const app = new App({ settings: { networkExtensions: false } })
+    app.use(rateLimit({ store }))
+    app.get('/', (_, res) => res.send('ok'))
+
+    await makeFetch(app.listen())('/').expect(200)
+    expect(store.keys).toHaveLength(1)
+    expect(store.keys[0]).toMatch(/127\.0\.0\.1|::1/)
   })
 })
 
