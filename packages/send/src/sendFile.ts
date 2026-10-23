@@ -109,9 +109,10 @@ export const sendFile =
 
       // A single satisfiable range → 206. Malformed (-2) or multi-range requests
       // fall through to a normal 200 full-body response.
-      if (Array.isArray(ranges) && ranges.length === 1) {
+      const range = Array.isArray(ranges) && ranges.length === 1 ? ranges[0] : undefined
+      if (range) {
         status = 206
-        const { start, end } = ranges[0]
+        const { start, end } = range
 
         options.start = start
         options.end = end

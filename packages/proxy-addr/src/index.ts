@@ -49,9 +49,10 @@ function mappedToIPv4(addr: string): string | null {
 
   // Hex format (::ffff:a00:1 -> 10.0.0.1)
   const parts = suffix.split(':')
-  if (parts.length === 2) {
-    const high = Number.parseInt(parts[0], 16)
-    const low = Number.parseInt(parts[1], 16)
+  const [highHex, lowHex] = parts
+  if (parts.length === 2 && highHex !== undefined && lowHex !== undefined) {
+    const high = Number.parseInt(highHex, 16)
+    const low = Number.parseInt(lowHex, 16)
     return `${(high >> 8) & 0xff}.${high & 0xff}.${(low >> 8) & 0xff}.${low & 0xff}`
   }
   return null
@@ -111,7 +112,8 @@ function alladdrs(req: Req, trust?: Trust): string[] {
   if (typeof trust !== 'function') trust = compile(trust)
 
   for (let i = 0; i < addrs.length - 1; i++) {
-    if (trust(addrs[i], i)) continue
+    // addrs[0] is undefined when the socket has no remoteAddress; trust functions currently receive it as-is
+    if (trust(addrs[i]!, i)) continue
     addrs.length = i + 1
   }
   return addrs
@@ -129,7 +131,7 @@ function compile(val: string | number | string[]): (addr: string, i: number) => 
 
   for (let i = 0; i < trust.length; i++) {
     const element = trust[i]
-    if (!isIPRangeName(element)) continue
+    if (element === undefined || !isIPRangeName(element)) continue
 
     // Splice in pre-defined range
     const namedRange = IP_RANGES[element]
@@ -229,7 +231,8 @@ export function parseIPNotation(note: string): Subnet {
  */
 export function proxyaddr(req: Req, trust: Trust): string {
   const addrs = alladdrs(req, trust)
-  return addrs[addrs.length - 1]
+  // Can be undefined when the socket has no remoteAddress (forwarded() casts it); callers currently receive that as-is
+  return addrs[addrs.length - 1]!
 }
 
 export { alladdrs as all }

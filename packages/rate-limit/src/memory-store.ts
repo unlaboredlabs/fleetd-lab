@@ -17,14 +17,16 @@ export class MemoryStore implements Store {
   }
 
   incr = async (key: string, callback: (error: Error | null, hits: number, resetTime: Date) => void): Promise<void> => {
-    if (this.hits[key]) this.hits[key]++
-    else this.hits[key] = 1
+    const hits = this.hits as Record<string, number>
+    if (hits[key]) hits[key]++
+    else hits[key] = 1
 
-    callback(null, this.hits[key], this.resetTime)
+    callback(null, hits[key], this.resetTime)
   }
 
   decrement(key: string): void {
-    if (this.hits[key]) this.hits[key]--
+    const hits = this.hits as Record<string, number>
+    if (hits[key]) hits[key]--
   }
 
   resetAll = (): void => {
@@ -33,7 +35,7 @@ export class MemoryStore implements Store {
   }
 
   resetKey(key: string): void {
-    delete this.hits[key]
+    delete (this.hits as Record<string, number>)[key]
   }
 
   calculateNextResetTime(windowMs: number): Date {
