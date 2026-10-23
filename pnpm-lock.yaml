@@ -254,6 +254,8 @@ importers:
         specifier: 'catalog:'
         version: 3.0.0
 
+  packages/basic-auth: {}
+
   packages/content-disposition: {}
 
   packages/cookie: {}
@@ -359,6 +361,8 @@ importers:
         version: 2.0.1
 
   packages/url: {}
+
+  packages/vary: {}
 
 packages:
 
