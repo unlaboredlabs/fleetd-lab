@@ -1,5 +1,31 @@
 # Change Log
 
+## Unreleased
+
+### Features
+
+- Support TOML 1.1.0 ([#332](https://github.com/tamasfe/taplo/issues/332)):
+  - `\e` and `\xHH` escapes in basic strings
+  - optional seconds in times and date-times
+  - newlines, comments and trailing commas in inline tables
+- Format multi-line inline tables with one entry per line, similarly to multi-line arrays ([#331](https://github.com/tamasfe/taplo/issues/331))
+
+### Fixes
+
+- Pass every valid and invalid test of toml-test v2.1.0
+- Allow non-ASCII characters (U+0080 to U+009F) in comments and literal strings
+- Reject lone carriage returns in multi-line strings
+- Report invalid character errors at the correct byte offsets
+- Allow numeric dotted keys with leading zeros (e.g. `01.23 = true`)
+- Reject `,` as the separator of fractional seconds
+- Reject integers that cannot be represented without loss
+- Reject tables defined twice after being created implicitly by a sub-table header
+- Decode date-time values with more than nanosecond precision instead of falling back to the Unix epoch
+- Escape all control characters when serializing strings
+- Formatter: keep comments placed before commas in arrays
+- Formatter: never exceed `allowed_blank_lines` around commas in arrays
+- Formatter: formatting is idempotent with `allowed_blank_lines = 0`, `trailing_newline = false` and `reorder_inline_tables`
+
 ## 0.14.0
 
 ### Fixes

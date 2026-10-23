@@ -13,6 +13,7 @@ use crate::{
     util::{iter::ExactIterExt, shared::Shared},
 };
 use either::Either;
+use std::{collections::HashSet, sync::Arc};
 
 pub trait FromSyntax: Sized + Sealed {
     fn from_syntax(syntax: SyntaxElement) -> Self;
@@ -486,6 +487,9 @@ fn root_from_syntax(syntax: SyntaxElement) -> Table {
 
     let mut current_table: Table = root_table.clone();
 
+    // Implicitly created tables that were defined by a table header.
+    let mut defined_tables: HashSet<*const TableInner> = HashSet::new();
+
     for child in node.children() {
         match child.kind() {
             table_kind @ (TABLE_ARRAY_HEADER | TABLE_HEADER) => {
@@ -511,7 +515,13 @@ fn root_from_syntax(syntax: SyntaxElement) -> Table {
                                                 .update(|s| s.push(syntax.clone()));
                                         }
 
-                                        if t.inner.kind != TableKind::Pseudo || !t.inner.header {
+                                        // Only tables created implicitly by
+                                        // table headers can be defined later,
+                                        // and only once.
+                                        if t.inner.kind != TableKind::Pseudo
+                                            || !t.inner.header
+                                            || !defined_tables.insert(Arc::as_ptr(&t.inner))
+                                        {
                                             t.inner.errors.update(|errors| {
                                                 errors.push(Error::ConflictingKeys {
                                                     key: key.clone(),

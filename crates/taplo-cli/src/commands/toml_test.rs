@@ -102,6 +102,7 @@ impl Serialize for TomlTestValue<'_> {
                 "value",
                 &match self.node {
                     Node::Str(d) => d.value().to_string(),
+                    Node::Date(d) => d.value().to_string(),
                     Node::Float(f) if f.value().is_nan() => String::from("nan"),
                     Node::Float(f) if f.value().is_infinite() => f.syntax().unwrap().to_string(),
                     _ => serde_json::to_string(&self.node).map_err(serde::ser::Error::custom)?,
@@ -131,5 +132,27 @@ impl Serialize for TomlTestValue<'_> {
                 _ => unreachable!(),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn date_time_values_are_not_quoted() {
+        let src = "odt = 1979-05-27 07:32Z\nlt = 07:32\narr = [1979-05-27]\n";
+        let dom = taplo::parser::parse(src).into_dom();
+
+        let value = serde_json::to_value(TomlTestValue::new(&dom)).unwrap();
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "odt": {"type": "datetime", "value": "1979-05-27T07:32:00Z"},
+                "lt": {"type": "time-local", "value": "07:32:00"},
+                "arr": [{"type": "date-local", "value": "1979-05-27"}],
+            })
+        );
     }
 }

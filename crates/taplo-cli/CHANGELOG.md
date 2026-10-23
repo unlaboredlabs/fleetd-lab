@@ -1,5 +1,15 @@
 # Change Log
 
+## Unreleased
+
+### Features
+
+- Support TOML 1.1.0 ([#332](https://github.com/tamasfe/taplo/issues/332))
+
+### Fixes
+
+- `toml-test`: date-time values are no longer quoted twice
+
 ## 0.10.0
 
 ### Fixes

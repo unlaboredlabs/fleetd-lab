@@ -48,7 +48,7 @@
         <div class="home-info-box-main">
           <span>
             Supports TOML
-            <a href="https://toml.io/en/v1.0.0">1.0.0</a>
+            <a href="https://toml.io/en/v1.1.0">1.1.0</a>
             .
           </span>
         </div>

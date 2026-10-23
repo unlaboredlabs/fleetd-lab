@@ -1,5 +1,12 @@
 # Change Log
 
+## Unreleased
+
+### Features
+
+- Support TOML 1.1.0 ([#332](https://github.com/tamasfe/taplo/issues/332))
+- Folding ranges for multi-line inline tables
+
 ## 0.8.0
 
 ### Features

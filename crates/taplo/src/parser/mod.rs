@@ -567,9 +567,9 @@ impl<'p> Parser<'p> {
                 }
             }
             FLOAT => {
-                if self.lexer.slice().starts_with('0') {
-                    self.error("zero-padded numbers are not allowed")
-                } else if self.lexer.slice().starts_with('+') {
+                // A float in a key is a dotted key with numeric parts (e.g. `01.23`),
+                // so leading zeros are allowed, but `+` is not a valid bare key character.
+                if self.lexer.slice().contains('+') {
                     Err(())
                 } else {
                     for (i, s) in self.lexer.slice().split('.').enumerate() {
@@ -617,6 +617,8 @@ impl<'p> Parser<'p> {
                     self.error("zero-padded integers are not allowed")
                 } else if !check_underscores(self.lexer.slice(), 10) {
                     self.error("invalid underscores")
+                } else if !check_integer_range(self.lexer.slice(), 10) {
+                    self.error("integer is out of range")
                 } else {
                     self.token()
                 }
@@ -624,6 +626,8 @@ impl<'p> Parser<'p> {
             INTEGER_BIN => {
                 if !check_underscores(self.lexer.slice(), 2) {
                     self.error("invalid underscores")
+                } else if !check_integer_range(self.lexer.slice(), 2) {
+                    self.error("integer is out of range")
                 } else {
                     self.token()
                 }
@@ -631,6 +635,8 @@ impl<'p> Parser<'p> {
             INTEGER_HEX => {
                 if !check_underscores(self.lexer.slice(), 16) {
                     self.error("invalid underscores")
+                } else if !check_integer_range(self.lexer.slice(), 16) {
+                    self.error("integer is out of range")
                 } else {
                     self.token()
                 }
@@ -638,6 +644,8 @@ impl<'p> Parser<'p> {
             INTEGER_OCT => {
                 if !check_underscores(self.lexer.slice(), 8) {
                     self.error("invalid underscores")
+                } else if !check_integer_range(self.lexer.slice(), 8) {
+                    self.error("integer is out of range")
                 } else {
                     self.token()
                 }
@@ -893,6 +901,18 @@ fn check_underscores(s: &str, radix: u32) -> bool {
     }
 
     true
+}
+
+/// Integers must be representable without loss, the DOM
+/// supports `i64` for negative and `u64` for positive values.
+fn check_integer_range(s: &str, radix: u32) -> bool {
+    let s = s.replace('_', "");
+
+    if radix == 10 {
+        s.parse::<i64>().is_ok() || (!s.starts_with('-') && s.parse::<u64>().is_ok())
+    } else {
+        u64::from_str_radix(&s[2..], radix).is_ok()
+    }
 }
 
 /// The final results of a parsing.
