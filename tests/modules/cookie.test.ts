@@ -111,6 +111,28 @@ describe('Cookie serializing', () => {
     }
     throw new Error('Did not throw an error')
   })
+  it('should put "Partitioned" in cookie', () => {
+    expect(cookie.serialize('foo', 'bar', { partitioned: true })).toBe('foo=bar; Partitioned')
+    expect(cookie.serialize('foo', 'bar', { partitioned: false })).toBe('foo=bar')
+  })
+  it('should properly set "priority" parameter', () => {
+    expect(cookie.serialize('foo', 'bar', { priority: 'low' })).toBe('foo=bar; Priority=Low')
+    expect(cookie.serialize('foo', 'bar', { priority: 'Low' })).toBe('foo=bar; Priority=Low')
+    expect(cookie.serialize('foo', 'bar', { priority: 'medium' })).toBe('foo=bar; Priority=Medium')
+    expect(cookie.serialize('foo', 'bar', { priority: 'MEDIUM' })).toBe('foo=bar; Priority=Medium')
+    expect(cookie.serialize('foo', 'bar', { priority: 'high' })).toBe('foo=bar; Priority=High')
+    expect(cookie.serialize('foo', 'bar', { priority: 'HiGh' })).toBe('foo=bar; Priority=High')
+  })
+  it('should throw on invalid "priority" option', () => {
+    expect(() => cookie.serialize('foo', 'bar', { priority: 'urgent' })).toThrow(
+      new TypeError('option priority is invalid')
+    )
+  })
+  it('should put "Partitioned" and "Priority" after "Secure" and before "SameSite"', () => {
+    expect(cookie.serialize('foo', 'bar', { secure: true, partitioned: true, priority: 'HIGH', sameSite: 'lax' })).toBe(
+      'foo=bar; Secure; Partitioned; Priority=High; SameSite=Lax'
+    )
+  })
   it('should do escaping', () => {
     expect(cookie.serialize('cat', '+ ')).toBe('cat=%2B%20')
   })
