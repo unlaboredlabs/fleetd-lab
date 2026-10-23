@@ -664,6 +664,56 @@ describe('HTTP methods', () => {
 
     await fetch('/hello', { method: 'HEAD' }).expect(404)
   })
+  it('HEAD request runs only GET, HEAD and all routes regardless of registration order', async () => {
+    const app = new App()
+    const ran: string[] = []
+
+    app.post('/item', (_, res) => {
+      ran.push('post')
+      res.setHeader('X-Handler', 'post').send('POST body')
+    })
+    app.put('/item', (_, res, next) => {
+      ran.push('put')
+      next?.()
+    })
+    app.all('/item', (_, res, next) => {
+      ran.push('all')
+      res.setHeader('X-All', 'yes')
+      next?.()
+    })
+    app.get('/item', (_, res) => {
+      ran.push('get')
+      res.setHeader('X-Handler', 'get').send('GET body')
+    })
+
+    const server = app.listen()
+    const fetch = makeFetch(server)
+
+    await fetch('/item', { method: 'HEAD' })
+      .expect(200, '')
+      .expectHeader('X-Handler', 'get')
+      .expectHeader('X-All', 'yes')
+    expect(ran).toEqual(['all', 'get'])
+  })
+  it('HEAD request runs a HEAD route registered after other methods', async () => {
+    const app = new App()
+    const ran: string[] = []
+
+    app.post('/item', (_, res) => {
+      ran.push('post')
+      res.send('POST body')
+    })
+    app.head('/item', (_, res) => {
+      ran.push('head')
+      res.setHeader('X-Handler', 'head').end()
+    })
+
+    const server = app.listen()
+    const fetch = makeFetch(server)
+
+    await fetch('/item', { method: 'HEAD' }).expect(200, '').expectHeader('X-Handler', 'head')
+    expect(ran).toEqual(['head'])
+  })
 })
 
 describe('Route handlers', () => {
