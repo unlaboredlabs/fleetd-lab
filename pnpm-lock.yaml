@@ -360,6 +360,8 @@ importers:
 
   packages/url: {}
 
+  packages/vary: {}
+
 packages:
 
   '@babel/code-frame@7.29.7':
