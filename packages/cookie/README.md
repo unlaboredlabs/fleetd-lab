@@ -105,10 +105,30 @@ The given number will be converted to an integer by rounding down. By default, n
 `maxAge` are set, then `maxAge` takes precedence, but it is possible not all clients by obey this,
 so if both are set, they should point to the same date and time.
 
+##### `partitioned`
+
+Specifies the `boolean` value for the [`Partitioned` `Set-Cookie` attribute](https://datatracker.ietf.org/doc/html/draft-cutler-httpbis-partitioned-cookies). When truthy,
+the `Partitioned` attribute is set, otherwise it is not. By default, the `Partitioned` attribute is not set.
+
+**note** This is an attribute that has not yet been fully standardized, and may change in the future.
+This also means many clients may ignore this attribute until they understand it.
+
 ##### `path`
 
 Specifies the value for the [`Path` `Set-Cookie` attribute][rfc-6265-5.2.4]. By default, the path
 is considered the ["default path"][rfc-6265-5.1.4].
+
+##### `priority`
+
+Specifies the `string` to be the value for the [`Priority` `Set-Cookie` attribute](https://datatracker.ietf.org/doc/html/draft-west-cookie-priority-00#section-4.1).
+The value is matched case-insensitively; any other value throws a `TypeError`.
+
+- `'low'` will set the `Priority` attribute to `Low`.
+- `'medium'` will set the `Priority` attribute to `Medium`, the default priority when not set.
+- `'high'` will set the `Priority` attribute to `High`.
+
+**note** This is an attribute that has not yet been fully standardized, and may change in the future.
+This also means many clients may ignore this attribute until they understand it.
 
 ##### `sameSite`
 

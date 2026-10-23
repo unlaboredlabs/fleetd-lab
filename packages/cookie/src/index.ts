@@ -63,6 +63,8 @@ export type SerializeOptions = Partial<{
   path: string
   httpOnly: boolean
   secure: boolean
+  partitioned: boolean
+  priority: 'Low' | 'low' | 'Medium' | 'medium' | 'High' | 'high' | string
   sameSite: boolean | 'Strict' | 'strict' | 'Lax' | 'lax' | 'None' | 'none' | string
   expires: Date
 }>
@@ -103,6 +105,26 @@ export function serialize(name: string, val: string, opt: SerializeOptions = {})
   if (opt.httpOnly) str += '; HttpOnly'
 
   if (opt.secure) str += '; Secure'
+
+  if (opt.partitioned) str += '; Partitioned'
+
+  if (opt.priority) {
+    const priority = typeof opt.priority === 'string' ? opt.priority.toLowerCase() : opt.priority
+
+    switch (priority) {
+      case 'low':
+        str += '; Priority=Low'
+        break
+      case 'medium':
+        str += '; Priority=Medium'
+        break
+      case 'high':
+        str += '; Priority=High'
+        break
+      default:
+        throw new TypeError('option priority is invalid')
+    }
+  }
 
   if (opt.sameSite) {
     const sameSite = typeof opt.sameSite === 'string' ? opt.sameSite.toLowerCase() : opt.sameSite
