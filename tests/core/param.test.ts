@@ -183,6 +183,24 @@ describe('app.param', () => {
     calls.length = 0
     await fetch('/1').expect(200, 'parent')
   })
+  it('ignores Object.prototype keys as param names', async () => {
+    const app = new App()
+
+    app.get('/a/:constructor', (req, res) => void res.send(req.params.constructor))
+
+    const fetch = makeFetch(app.listen())
+    await fetch('/a/x').expect(200, 'x')
+
+    const calls: string[] = []
+    app.param('constructor', (_req, _res, next, value) => {
+      calls.push(value)
+      next()
+    })
+    app.param('__proto__', (_req, _res, next) => next())
+
+    await fetch('/a/y').expect(200, 'y')
+    expect(calls).toEqual(['y'])
+  })
   it('runs handlers for each param of a route', async () => {
     const app = new App()
     const calls: string[] = []

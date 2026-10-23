@@ -86,7 +86,7 @@ export class App<Req extends Request = Request, Res extends Response = Response>
   onError: ErrorHandler
   settings: AppSettings
   engines: Record<string, TemplateEngine> = {}
-  paramHandlers: Record<string, ParamHandler<Req, Res>[]> = {}
+  paramHandlers: Record<string, ParamHandler<Req, Res>[]> = Object.create(null)
   applyExtensions?: Handler
   attach: (req: Req, res: Res, next?: NextFunction) => void
   cache: Record<string, unknown>
@@ -326,7 +326,7 @@ export class App<Req extends Request = Request, Res extends Response = Response>
     let current: { url: string; baseUrl: string; entryUrl: string } | null = null
 
     // Values the param handlers already ran for in this request, and the param value they left behind
-    const paramsCalled: Record<string, { match: string; value: string }> = {}
+    const paramsCalled: Record<string, { match: string; value: string }> = Object.create(null)
 
     const processParams = (keys: string[], params: URLParams, done: NextFunction) => {
       let i = 0
@@ -402,7 +402,7 @@ export class App<Req extends Request = Request, Res extends Response = Response>
       req.path ??= pathname
       if (this.settings?.enableReqRoute) req.route = middleware
 
-      if (middleware.type === 'route' && regex?.keys && regex.keys.length) {
+      if (middleware.type === 'route' && regex?.keys && regex.keys.some((key) => this.paramHandlers[key])) {
         return processParams(regex.keys, params, (err) =>
           err != null
             ? next?.(err)
