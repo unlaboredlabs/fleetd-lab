@@ -397,6 +397,55 @@ describe('Response extensions', () => {
 
       await makeFetch(app)('/').expect(200)
     })
+    it('should not modify the options object', async () => {
+      const options = { maxAge: 60000 }
+
+      const app = runServer((req, res) => {
+        setCookie(req, res)('a', '1', options)
+        setCookie(req, res)('b', '2', options).end()
+      })
+
+      const response = await makeFetch(app)('/').expect(200)
+
+      expect(options).toStrictEqual({ maxAge: 60000 })
+      expect(response.headers.getSetCookie()).toEqual([
+        expect.stringMatching(/^a=1; Max-Age=60; Path=\/; Expires=/),
+        expect.stringMatching(/^b=2; Max-Age=60; Path=\/; Expires=/)
+      ])
+    })
+    it('should send the same attributes when options are reused across requests', async () => {
+      const options = { maxAge: 60000, signed: true }
+      const snapshot = structuredClone(options)
+
+      const app = runServer((req, res) => {
+        ;(req as typeof req & { secret: string }).secret = 'my-secret'
+        setCookie(req, res)('a', '1', options).end()
+      })
+
+      const attributes = async () => {
+        const response = await makeFetch(app)('/').expect(200)
+        const [cookie] = response.headers.getSetCookie()
+        return cookie.replace(/; Expires=[^;]*/, '')
+      }
+
+      const first = await attributes()
+      const second = await attributes()
+
+      expect(options).toStrictEqual(snapshot)
+      expect(first).toMatch(/^a=s%3A1\.[^;]+; Max-Age=60; Path=\/$/)
+      expect(second).toBe(first)
+    })
+    it('should not add a default path to the options object', async () => {
+      const options = {}
+
+      const app = runServer((req, res) => {
+        setCookie(req, res)('a', '1', options).end()
+      })
+
+      await makeFetch(app)('/').expect(200).expectHeader('Set-Cookie', 'a=1; Path=/')
+
+      expect(options).toStrictEqual({})
+    })
     it('should append to Set-Cookie if called multiple times', async () => {
       const app = runServer((req, res) => {
         setCookie(req, res)('hello', 'world')
