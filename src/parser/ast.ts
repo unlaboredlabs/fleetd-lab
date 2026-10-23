@@ -13,6 +13,7 @@ export enum NodeType {
   case_expression = 'case_expression',
   case_when = 'case_when',
   case_else = 'case_else',
+  block = 'block',
   limit_clause = 'limit_clause',
   all_columns_asterisk = 'all_columns_asterisk',
   literal = 'literal',
@@ -107,6 +108,23 @@ export interface CaseElseNode extends BaseNode {
   result: AstNode[];
 }
 
+// Procedural block like:
+//
+//   BEGIN <statements> END
+//   THEN <statements> ELSE <statements> END
+//
+// with each section starting with a keyword and containing a list of statements.
+export interface BlockNode extends BaseNode {
+  type: NodeType.block;
+  sections: BlockSection[];
+  endKw: KeywordNode;
+}
+
+export interface BlockSection {
+  keyword: KeywordNode;
+  statements: StatementNode[];
+}
+
 // LIMIT <count>
 // LIMIT <offset>, <count>
 export interface LimitClauseNode extends BaseNode {
@@ -199,6 +217,7 @@ export type AstNode =
   | CaseExpressionNode
   | CaseWhenNode
   | CaseElseNode
+  | BlockNode
   | LimitClauseNode
   | AllColumnsAsteriskNode
   | LiteralNode

@@ -41,6 +41,7 @@
     "prestosql",
     "snowflake",
     "duckdb",
+    "hana",
     "clickhouse"
   ],
   "files": [

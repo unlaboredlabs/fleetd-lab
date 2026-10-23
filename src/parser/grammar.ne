@@ -1,7 +1,7 @@
 @preprocessor typescript
 @{%
 import LexerAdapter from './LexerAdapter.js';
-import { NodeType, AstNode, CommentNode, KeywordNode, IdentifierNode, DataTypeNode } from './ast.js';
+import { NodeType, AstNode, CommentNode, KeywordNode, IdentifierNode, DataTypeNode, StatementNode } from './ast.js';
 import { Token, TokenType } from '../lexer/token.js';
 
 // The lexer here is only to provide the has() method,
@@ -38,6 +38,24 @@ interface ExpressionList {
   previous?: ExpressionList;
   value: AstNode;
 }
+
+interface StatementList {
+  previous?: StatementList;
+  value: ExpressionList | undefined;
+}
+
+const materializeStatementList = (statements: StatementList | undefined, last: ExpressionList | undefined): StatementNode[] => {
+  const result: StatementNode[] = [];
+  const lastChildren = materializeExpressionList(last);
+  if (lastChildren.length > 0) {
+    result.push({ type: NodeType.statement, children: lastChildren, hasSemicolon: false });
+  }
+  for (let current = statements; current; current = current.previous) {
+    result.push({ type: NodeType.statement, children: materializeExpressionList(current.value), hasSemicolon: true });
+  }
+  result.reverse();
+  return result;
+};
 
 const materializeExpressionList = (expressions?: ExpressionList): AstNode[] => {
   const result: AstNode[] = [];
@@ -221,7 +239,7 @@ expression -> ( andless_expression | logic_operator ) {% unwrap %}
 andless_expression -> ( asteriskless_andless_expression | asterisk ) {% unwrap %}
 
 asteriskless_andless_expression ->
-  ( atomic_expression | between_predicate | case_expression ) {% unwrap %}
+  ( atomic_expression | between_predicate | case_expression | block ) {% unwrap %}
 
 atomic_expression ->
   ( array_subscript
@@ -337,6 +355,33 @@ case_clause -> %ELSE _ expression_chain_ {%
     elseKw: addComments(toKeywordNode(elseToken), { trailing: _ }),
     result: expr,
   })
+%}
+
+# Procedural block like BEGIN ... END, which contains a list of statements.
+# The BLOCK_* tokens are only produced by dialect-specific postProcess(),
+# which guarantees that they are properly balanced.
+block -> %BLOCK_START block_body block_section:* %BLOCK_END {%
+  ([startToken, body, sections, endToken]) => ({
+    type: NodeType.block,
+    sections: [[startToken, body], ...sections].map(([keywordToken, statements]: [Token, () => StatementNode[]]) => ({
+      keyword: toKeywordNode(keywordToken),
+      statements: statements(),
+    })),
+    endKw: toKeywordNode(endToken),
+  })
+%}
+
+block_section -> %BLOCK_MIDDLE block_body
+
+# Statements separated by semicolons, the last statement might lack the semicolon.
+# Nearley completes every prefix; only materialize the statements of the surviving block.
+block_body -> block_statements expressions_or_clauses {%
+  ([statements, last]) => () => materializeStatementList(statements, last)
+%}
+
+block_statements -> null {% () => undefined %}
+block_statements -> block_statements expressions_or_clauses %DELIMITER {%
+  ([previous, value]) => ({ previous, value })
 %}
 
 comma -> ( %COMMA ) {% ([[token]]) => ({ type: NodeType.comma }) %}
