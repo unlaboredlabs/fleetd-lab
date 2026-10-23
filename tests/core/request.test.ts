@@ -3,15 +3,15 @@ import { makeFetch } from 'supertest-fetch'
 import { afterEach, assert, describe, expect, it, vi } from 'vitest'
 import { getHost, getIP, getProtocol, type Request } from '../../packages/app/src'
 import { App } from '../../packages/app/src/app'
-import * as req from '../../packages/req/src'
+import * as req from '../../packages/request/src'
 import { InitAppAndTest } from '../../test_helpers/initAppAndTest'
 
-vi.mock<typeof req>(import('../../packages/req/src'), async (importOriginal) => {
+vi.mock<typeof req>(import('../../packages/request/src'), async (importOriginal) => {
   const module = await importOriginal()
 
   return {
     ...module,
-    getRequestHeader: vi.fn(module.getRequestHeader)
+    requestHeader: vi.fn(module.requestHeader)
   } satisfies typeof req
 })
 
@@ -465,11 +465,11 @@ describe('Request properties', () => {
       await fetch('/').expect(200, 'secure: false')
     })
     it('req.secure is true when connection is encrypted (HTTPS)', async () => {
-      const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
-      vi.mocked(req.getRequestHeader).mockImplementation((r) => {
+      const { requestHeader }: typeof req = await vi.importActual('../../packages/request/src')
+      vi.mocked(req.requestHeader).mockImplementation((r) => {
         // simulate an HTTPS connection
         ;((r as Request).socket as Request['socket'] & { encrypted: boolean }).encrypted = true
-        return getRequestHeader(r)
+        return requestHeader(r)
       })
 
       const { fetch } = InitAppAndTest(
@@ -537,9 +537,9 @@ describe('Request properties', () => {
       expect(['hostname: undefined', 'hostname: localhost']).toContain(body)
     })
     it('should derive hostname from the :authority header and assign it to req.hostname', async () => {
-      const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
-      vi.mocked(req.getRequestHeader).mockImplementation((req) => {
-        const defaultGetter = getRequestHeader(req)
+      const { requestHeader }: typeof req = await vi.importActual('../../packages/request/src')
+      vi.mocked(req.requestHeader).mockImplementation((req) => {
+        const defaultGetter = requestHeader(req)
         return (header: string) => {
           if (header === 'host') return undefined
           if (header === ':authority') return 'userinfo@bar.baz:8080'
@@ -574,9 +574,9 @@ describe('Request properties', () => {
       await fetch('/', { headers: { Host: 'foo.bar:8080' } }).expect(200, { port: 8080 })
     })
     it('should derive port from the :authority header and assign it to req.port', async () => {
-      const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
-      vi.mocked(req.getRequestHeader).mockImplementation((req) => {
-        const defaultGetter = getRequestHeader(req)
+      const { requestHeader }: typeof req = await vi.importActual('../../packages/request/src')
+      vi.mocked(req.requestHeader).mockImplementation((req) => {
+        const defaultGetter = requestHeader(req)
         return (header: string) => {
           if (header === 'host') return undefined
           if (header === ':authority') return 'bar.baz:8080'
@@ -600,9 +600,9 @@ describe('Request properties', () => {
       await expect(response.json()).resolves.toEqual({ port: 8080 })
     })
     it('should reject request when the :authority header disagrees with the host header', async () => {
-      const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
-      vi.mocked(req.getRequestHeader).mockImplementation((req) => {
-        const defaultGetter = getRequestHeader(req)
+      const { requestHeader }: typeof req = await vi.importActual('../../packages/request/src')
+      vi.mocked(req.requestHeader).mockImplementation((req) => {
+        const defaultGetter = requestHeader(req)
         return (header: string) => {
           if (header === 'host') return 'foo.bar'
           if (header === ':authority') return 'bar.baz'
@@ -686,9 +686,9 @@ describe('Request properties', () => {
       expect(response.status).toBe(500)
     })
     it('should return undefined hostname when :authority header is an array', async () => {
-      const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
-      vi.mocked(req.getRequestHeader).mockImplementation((r) => {
-        const defaultGetter = getRequestHeader(r)
+      const { requestHeader }: typeof req = await vi.importActual('../../packages/request/src')
+      vi.mocked(req.requestHeader).mockImplementation((r) => {
+        const defaultGetter = requestHeader(r)
         return (header: string) => {
           if (header === 'host') return undefined
           if (header === ':authority') return ['first.com', 'second.com'] as unknown as string
@@ -708,9 +708,9 @@ describe('Request properties', () => {
       await fetch('/').expect(200, 'hostname: undefined')
     })
     it('should return undefined hostname when x-forwarded-host header is an array', async () => {
-      const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
-      vi.mocked(req.getRequestHeader).mockImplementation((r) => {
-        const defaultGetter = getRequestHeader(r)
+      const { requestHeader }: typeof req = await vi.importActual('../../packages/request/src')
+      vi.mocked(req.requestHeader).mockImplementation((r) => {
+        const defaultGetter = requestHeader(r)
         return (header: string) => {
           if (header === 'host') return undefined
           if (header === 'x-forwarded-host') return ['first.com', 'second.com'] as unknown as string
@@ -731,9 +731,9 @@ describe('Request properties', () => {
       await fetch('/').expect(200, 'hostname: undefined')
     })
     it('should return hostname when :authority and host headers match', async () => {
-      const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
-      vi.mocked(req.getRequestHeader).mockImplementation((r) => {
-        const defaultGetter = getRequestHeader(r)
+      const { requestHeader }: typeof req = await vi.importActual('../../packages/request/src')
+      vi.mocked(req.requestHeader).mockImplementation((r) => {
+        const defaultGetter = requestHeader(r)
         return (header: string) => {
           if (header === 'host') return 'example.com:8080'
           if (header === ':authority') return 'example.com:8080'
@@ -753,9 +753,9 @@ describe('Request properties', () => {
       await fetch('/').expect(200, 'hostname: example.com, port: 8080')
     })
     it('should parse IPv6 literal in host header', async () => {
-      const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
-      vi.mocked(req.getRequestHeader).mockImplementation((r) => {
-        const defaultGetter = getRequestHeader(r)
+      const { requestHeader }: typeof req = await vi.importActual('../../packages/request/src')
+      vi.mocked(req.requestHeader).mockImplementation((r) => {
+        const defaultGetter = requestHeader(r)
         return (header: string) => {
           if (header === 'host') return '[::1]:8080'
           return defaultGetter(header)
@@ -774,9 +774,9 @@ describe('Request properties', () => {
       await fetch('/').expect(200, 'hostname: [::1], port: 8080')
     })
     it('should handle hostname without port', async () => {
-      const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
-      vi.mocked(req.getRequestHeader).mockImplementation((r) => {
-        const defaultGetter = getRequestHeader(r)
+      const { requestHeader }: typeof req = await vi.importActual('../../packages/request/src')
+      vi.mocked(req.requestHeader).mockImplementation((r) => {
+        const defaultGetter = requestHeader(r)
         return (header: string) => {
           if (header === 'host') return 'example.com'
           return defaultGetter(header)
@@ -795,9 +795,9 @@ describe('Request properties', () => {
       await fetch('/').expect(200, 'hostname: example.com, port: undefined')
     })
     it('should return subdomains as empty array when hostname is undefined', async () => {
-      const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
-      vi.mocked(req.getRequestHeader).mockImplementation((r) => {
-        const defaultGetter = getRequestHeader(r)
+      const { requestHeader }: typeof req = await vi.importActual('../../packages/request/src')
+      vi.mocked(req.requestHeader).mockImplementation((r) => {
+        const defaultGetter = requestHeader(r)
         return (header: string) => {
           if (header === 'host') return undefined
           return defaultGetter(header)
@@ -816,9 +816,9 @@ describe('Request properties', () => {
       await fetch('/').expect(200, { subdomains: [] })
     })
     it('should return IP address as subdomain when hostname is an IP', async () => {
-      const { getRequestHeader }: typeof req = await vi.importActual('../../packages/req/src')
-      vi.mocked(req.getRequestHeader).mockImplementation((r) => {
-        const defaultGetter = getRequestHeader(r)
+      const { requestHeader }: typeof req = await vi.importActual('../../packages/request/src')
+      vi.mocked(req.requestHeader).mockImplementation((r) => {
+        const defaultGetter = requestHeader(r)
         return (header: string) => {
           if (header === 'host') return '192.168.1.1:8080'
           return defaultGetter(header)

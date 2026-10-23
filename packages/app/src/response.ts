@@ -1,6 +1,6 @@
 import type { OutgoingHttpHeaders, ServerResponse } from 'node:http'
 import type { SerializeOptions } from '@tinyhttp/cookie'
-import type { DownloadOptions, FormatProps, SendFileOptions } from '@tinyhttp/res'
+import type { DownloadOptions, FormatProps, SendFileOptions } from '@tinyhttp/response'
 import type { App } from './app.js'
 import type { Request } from './request.js'
 import type { AppRenderOptions, TemplateEngineOptions } from './types.js'

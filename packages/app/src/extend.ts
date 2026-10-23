@@ -1,33 +1,26 @@
 import { Accepts } from '@tinyhttp/accepts'
 import { compile } from '@tinyhttp/proxy-addr'
-import {
-  checkIfXMLHttpRequest,
-  getFreshOrStale,
-  getQueryParams,
-  getRangeFromHeader,
-  getRequestHeader,
-  reqIs
-} from '@tinyhttp/req'
+import { getQueryParams, isRequestFresh, isXhr, reqIs, requestHeader, requestRange } from '@tinyhttp/request'
 import {
   append,
   attachment,
   clearCookie,
   download,
-  formatResponse,
-  getResponseHeader,
+  formatByAccept,
   json,
   redirect,
+  responseHeader,
   send,
   sendFile,
   sendStatus,
   setContentType,
   setCookie,
   setHeader,
-  setLinksHeader,
-  setLocationHeader,
-  setVaryHeader,
+  setLinks,
+  setLocation,
+  setVary,
   status
-} from '@tinyhttp/res'
+} from '@tinyhttp/response'
 import type { NextFunction } from '@tinyhttp/router'
 import type { App } from './app.js'
 import type { Handler } from './index.js'
@@ -43,8 +36,8 @@ export const extendMiddleware = <EngineOptions extends TemplateEngineOptions = T
   ((req: Request, res: Response<EngineOptions>, next: NextFunction) => {
     const { settings } = app
 
-    res.get = getResponseHeader(res)
-    req.get = getRequestHeader(req)
+    res.get = responseHeader(res)
+    req.get = requestHeader(req)
 
     if (settings?.bindAppToReqRes) {
       req.app = app
@@ -70,7 +63,7 @@ export const extendMiddleware = <EngineOptions extends TemplateEngineOptions = T
     req.query = getQueryParams(req.url)
 
     req.is = reqIs(req)
-    req.range = getRangeFromHeader(req)
+    req.range = requestRange(req)
 
     // Lazily cache Accepts instance to avoid creating multiple Negotiator instances per request
     let acceptsInstance: Accepts | undefined
@@ -86,7 +79,7 @@ export const extendMiddleware = <EngineOptions extends TemplateEngineOptions = T
     req.acceptsLanguages = ((...languages: string[]) =>
       getAcceptsInstance().languages(languages)) as Request['acceptsLanguages']
 
-    req.xhr = checkIfXMLHttpRequest(req)
+    req.xhr = isXhr(req)
 
     res.header = res.set = setHeader<Response>(res)
     res.send = send<Request, Response>(req, res)
@@ -95,21 +88,21 @@ export const extendMiddleware = <EngineOptions extends TemplateEngineOptions = T
     res.sendStatus = sendStatus<Request, Response>(req, res)
     res.sendFile = sendFile<Request, Response>(req, res)
     res.type = setContentType<Response>(res)
-    res.location = setLocationHeader<Request, Response>(req, res)
-    res.links = setLinksHeader<Response>(res)
-    res.vary = setVaryHeader<Response>(res)
+    res.location = setLocation<Request, Response>(req, res)
+    res.links = setLinks<Response>(res)
+    res.vary = setVary<Response>(res)
     res.cookie = setCookie<Request, Response>(req, res)
     res.clearCookie = clearCookie<Request, Response>(req, res)
     res.render = renderTemplate(req, res, app)
-    res.format = formatResponse(req, res, next)
+    res.format = formatByAccept(req, res, next)
     res.redirect = redirect(req, res, next)
     res.attachment = attachment<Response>(res)
     res.download = download<Request, Response>(req, res)
     res.append = append<Response>(res)
     res.locals ??= {}
 
-    Object.defineProperty(req, 'fresh', { get: () => getFreshOrStale(req, res), configurable: true })
-    Object.defineProperty(req, 'stale', { get: () => !getFreshOrStale(req, res), configurable: true })
+    Object.defineProperty(req, 'fresh', { get: () => isRequestFresh(req, res), configurable: true })
+    Object.defineProperty(req, 'stale', { get: () => !isRequestFresh(req, res), configurable: true })
 
     next()
   }) as Handler

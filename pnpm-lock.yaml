@@ -238,15 +238,18 @@ importers:
       '@tinyhttp/cookie':
         specifier: workspace:*
         version: link:../cookie
+      '@tinyhttp/html-escape':
+        specifier: workspace:*
+        version: link:../html-escape
       '@tinyhttp/proxy-addr':
         specifier: workspace:*
         version: link:../proxy-addr
-      '@tinyhttp/req':
+      '@tinyhttp/request':
         specifier: workspace:*
-        version: link:../req
-      '@tinyhttp/res':
+        version: link:../request
+      '@tinyhttp/response':
         specifier: workspace:*
-        version: link:../res
+        version: link:../response
       '@tinyhttp/router':
         specifier: workspace:*
         version: link:../router
@@ -268,6 +271,8 @@ importers:
 
   packages/forwarded: {}
 
+  packages/html-escape: {}
+
   packages/jsonp:
     dependencies:
       '@tinyhttp/app':
@@ -286,7 +291,7 @@ importers:
         specifier: workspace:*
         version: link:../send
 
-  packages/req:
+  packages/request:
     dependencies:
       '@tinyhttp/accepts':
         specifier: workspace:*
@@ -301,7 +306,7 @@ importers:
         specifier: 'catalog:'
         version: 2.0.0
 
-  packages/res:
+  packages/response:
     dependencies:
       '@tinyhttp/content-disposition':
         specifier: workspace:*
@@ -315,9 +320,12 @@ importers:
       '@tinyhttp/encode-url':
         specifier: workspace:*
         version: link:../encode-url
-      '@tinyhttp/req':
+      '@tinyhttp/html-escape':
         specifier: workspace:*
-        version: link:../req
+        version: link:../html-escape
+      '@tinyhttp/request':
+        specifier: workspace:*
+        version: link:../request
       '@tinyhttp/send':
         specifier: workspace:*
         version: link:../send
@@ -2557,7 +2565,7 @@ snapshots:
   vite@8.1.5(@types/node@24.10.1)(jiti@2.6.1)(yaml@2.9.1):
     dependencies:
       lightningcss: 1.33.0
-      picomatch: 4.0.5
+      picomatch: 4.0.7
       postcss: 8.5.21
       rolldown: 1.1.5
       tinyglobby: 0.2.17

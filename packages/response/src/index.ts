@@ -3,14 +3,13 @@ export { append } from './append.js'
 export * from './cookie.js'
 export * from './download.js'
 export type { FormatError, FormatProps } from './format.js'
-export { formatResponse } from './format.js'
+export { formatByAccept } from './format.js'
 export {
-  getResponseHeader,
+  responseHeader,
   setContentType,
   setHeader,
-  setLinksHeader,
-  setLocationHeader,
-  setVaryHeader
+  setLinks,
+  setLocation,
+  setVary
 } from './headers.js'
 export { redirect } from './redirect.js'
-export { escapeHTML } from './util.js'

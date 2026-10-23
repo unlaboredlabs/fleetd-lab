@@ -9,7 +9,7 @@ import { fresh } from './fresh.js'
 export * from '@tinyhttp/url'
 export * from './accepts.js'
 
-export const getRequestHeader = (req: Pick<Request, 'headers'>) => {
+export const requestHeader = (req: Pick<Request, 'headers'>) => {
   return <HeaderName extends string>(header: HeaderName): IncomingHttpHeaders[HeaderName] => {
     const lc = header.toLowerCase()
 
@@ -23,17 +23,17 @@ export const getRequestHeader = (req: Pick<Request, 'headers'>) => {
   }
 }
 
-export const getRangeFromHeader =
+export const requestRange =
   (req: Pick<Request, 'headers'>) =>
   (size: number, options?: Options): Result | Ranges | undefined => {
-    const range = getRequestHeader(req)('range')
+    const range = requestHeader(req)('range')
 
     if (!range) return
 
     return parseRange(size, range, options)
   }
 
-export const getFreshOrStale = (
+export const isRequestFresh = (
   req: Pick<Request, 'headers' | 'method'>,
   res: Pick<Response, 'getHeader' | 'statusCode'>
 ): boolean => {
@@ -54,8 +54,7 @@ export const getFreshOrStale = (
   return false
 }
 
-export const checkIfXMLHttpRequest = (req: Pick<Request, 'headers'>): boolean =>
-  req.headers['x-requested-with'] === 'XMLHttpRequest'
+export const isXhr = (req: Pick<Request, 'headers'>): boolean => req.headers['x-requested-with'] === 'XMLHttpRequest'
 
 export const reqIs =
   (req: Pick<Request, 'headers'>) =>
