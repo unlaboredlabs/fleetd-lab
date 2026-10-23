@@ -1,0 +1,39 @@
+{
+  "name": "@tinyhttp/bytes",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Format and parse byte sizes",
+  "homepage": "https://github.com/tinyhttp/tinyhttp/tree/master/packages/bytes#readme",
+  "engines": {
+    "node": ">=12.17.0"
+  },
+  "funding": {
+    "type": "individual",
+    "url": "https://github.com/tinyhttp/tinyhttp?sponsor=1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tinyhttp/tinyhttp.git",
+    "directory": "packages/bytes"
+  },
+  "types": "./dist/index.d.ts",
+  "exports": "./dist/index.js",
+  "keywords": [
+    "tinyhttp",
+    "node.js",
+    "web framework",
+    "web",
+    "backend",
+    "bytes",
+    "size",
+    "parser"
+  ],
+  "files": [
+    "dist"
+  ],
+  "author": "v1rtl",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc"
+  }
+}
