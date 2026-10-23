@@ -1243,9 +1243,11 @@ server = {
   host = "localhost",
   port = 8080,
 }
-list = [{
-  a = 1,
-}]
+list = [
+  {
+    a = 1,
+  },
+]
 "#;
 
     let formatted = crate::formatter::format(src, Default::default());
@@ -1700,5 +1702,58 @@ five = 5.5 #66
     assert_format!(
         &formatted,
         &crate::formatter::format(&formatted, options.clone())
+    );
+}
+
+#[test]
+fn test_nested_multiline_inline_table_closing_braces() {
+    let src = r#"
+a = [{
+  x = 1
+}, {
+  y = 2
+}]
+t = { a = {
+  b = 1
+}, e = 3 }
+u = { a = [{
+  b = 1
+}], e = 3 }
+empty = [1, {
+}]
+"#;
+
+    let expected = r#"
+a = [
+  {
+    x = 1,
+  },
+  {
+    y = 2,
+  },
+]
+t = {
+  a = {
+    b = 1,
+  },
+  e = 3,
+}
+u = {
+  a = [
+    {
+      b = 1,
+    },
+  ],
+  e = 3,
+}
+empty = [1, {}]
+"#;
+
+    let formatted = crate::formatter::format(src, Default::default());
+
+    assert_format!(expected, &formatted);
+    assert_format!(
+        expected,
+        &crate::formatter::format(&formatted, Default::default())
     );
 }

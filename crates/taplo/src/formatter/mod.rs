@@ -1069,10 +1069,27 @@ fn format_inline_table(
     (node.into(), formatted, comment)
 }
 
-/// Check whether the inline table itself spans multiple lines (TOML 1.1),
-/// newlines in nested values do not count.
+/// Check whether the inline table spans multiple lines (TOML 1.1).
+///
+/// This is the case if the table itself or any inline table nested in it
+/// contains newlines between its entries, otherwise the closing brace
+/// of the nested table would share a line with the entries that follow it.
+/// Newlines in other nested values (e.g. arrays) do not count.
 fn is_inline_table_multiline(node: &SyntaxNode) -> bool {
     node.children_with_tokens().any(|c| c.kind() == NEWLINE)
+        || contains_multiline_inline_table(node)
+}
+
+/// Whether the node is or contains an inline table with newlines between its entries.
+///
+/// Tables without entries and comments are formatted as `{}`, so they don't count.
+fn contains_multiline_inline_table(node: &SyntaxNode) -> bool {
+    node.descendants().any(|n| {
+        n.kind() == INLINE_TABLE
+            && n.children_with_tokens().any(|c| c.kind() == NEWLINE)
+            && n.children_with_tokens()
+                .any(|c| matches!(c.kind(), ENTRY | COMMENT))
+    })
 }
 
 /// Formats an inline table that spans multiple lines,
@@ -1225,8 +1242,11 @@ fn is_array_multiline(node: &SyntaxNode) -> bool {
     node.descendants_with_tokens().any(|n| n.kind() == NEWLINE)
 }
 
+/// Arrays with comments or multi-line inline tables are never collapsed,
+/// as the closing braces of the tables must be on their own lines.
 fn can_collapse_array(node: &SyntaxNode) -> bool {
     !node.descendants_with_tokens().any(|n| n.kind() == COMMENT)
+        && !contains_multiline_inline_table(node)
 }
 
 fn format_array(node: SyntaxNode, options: &Options, context: &Context) -> impl FormattedItem {
