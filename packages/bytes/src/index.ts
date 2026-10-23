@@ -35,11 +35,12 @@ export const format = (value: number, options?: BytesOptions): string | null => 
   if (!Number.isFinite(value)) return null
 
   const mag = Math.abs(value)
-  const thousandsSeparator = options?.thousandsSeparator || ''
-  const unitSeparator = options?.unitSeparator || ''
-  const decimalPlaces = options && options.decimalPlaces !== undefined ? options.decimalPlaces : 2
-  const fixedDecimals = Boolean(options?.fixedDecimals)
-  let unit = options?.unit || ''
+  const opts = options || {}
+  const thousandsSeparator = opts.thousandsSeparator || ''
+  const unitSeparator = opts.unitSeparator || ''
+  const decimalPlaces = opts.decimalPlaces !== undefined ? opts.decimalPlaces : 2
+  const fixedDecimals = Boolean(opts.fixedDecimals)
+  let unit = opts.unit || ''
 
   if (!unit || !map[unit.toLowerCase()]) {
     if (mag >= map.pb) unit = 'PB'
