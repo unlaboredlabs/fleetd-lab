@@ -43,9 +43,9 @@ function parseCharset(str: string, i: number): CharsetSpec | null {
   const match = simpleCharsetRegExp.exec(str)
   if (!match) return null
 
-  const charset = match[1]
+  const charset = match[1]!
   const qParam = match[2]?.split(';').find((p) => p.trim().startsWith('q='))
-  const q = qParam ? parseFloat(qParam.split('=')[1]) : 1
+  const q = qParam ? parseFloat(qParam.split('=')[1]!) : 1
 
   return { charset, q, i }
 }
@@ -86,7 +86,7 @@ function preferredCharsets(accept: string | undefined, provided?: string[]): str
   return priorities
     .filter(isQuality)
     .sort(compareSpecs)
-    .map((priority) => provided[priorities.indexOf(priority)])
+    .map((priority) => provided[priorities.indexOf(priority)]!)
 }
 
 // ============================================================================
@@ -119,9 +119,9 @@ function parseEncoding(str: string, i: number): EncodingSpec | null {
   const match = simpleEncodingRegExp.exec(str)
   if (!match) return null
 
-  const encoding = match[1]
+  const encoding = match[1]!
   const qParam = match[2]?.split(';').find((p) => p.trim().startsWith('q='))
-  const q = qParam ? parseFloat(qParam.split('=')[1]) : 1
+  const q = qParam ? parseFloat(qParam.split('=')[1]!) : 1
 
   return { encoding, q, i }
 }
@@ -162,7 +162,7 @@ function preferredEncodings(accept: string | undefined, provided?: string[]): st
   return priorities
     .filter(isQuality)
     .sort(compareSpecs)
-    .map((priority) => provided[priorities.indexOf(priority)])
+    .map((priority) => provided[priorities.indexOf(priority)]!)
 }
 
 // ============================================================================
@@ -190,11 +190,11 @@ function parseLanguage(str: string, i: number): LanguageSpec | null {
   const match = simpleLanguageRegExp.exec(str)
   if (!match) return null
 
-  const prefix = match[1]
+  const prefix = match[1]!
   const suffix = match[2]
   const full = suffix ? `${prefix}-${suffix}` : prefix
   const qParam = match[3]?.split(';').find((p) => p.startsWith('q='))
-  const q = qParam ? parseFloat(qParam.split('=')[1]) : 1
+  const q = qParam ? parseFloat(qParam.split('=')[1]!) : 1
 
   return { prefix, suffix, q, i, full }
 }
@@ -242,7 +242,7 @@ function preferredLanguages(accept: string | undefined, provided?: string[]): st
   return priorities
     .filter(isQuality)
     .sort(compareSpecs)
-    .map((priority) => provided[priorities.indexOf(priority)])
+    .map((priority) => provided[priorities.indexOf(priority)]!)
 }
 
 // ============================================================================
@@ -272,8 +272,8 @@ function parseMediaType(str: string, i: number): MediaTypeSpec | null {
 
   const params: Record<string, string> = Object.create(null)
   let q = 1
-  const subtype = match[2]
-  const type = match[1]
+  const subtype = match[2]!
+  const type = match[1]!
 
   if (match[3]) {
     const kvps = splitParameters(match[3]).map(splitKeyValuePair)
@@ -353,7 +353,7 @@ function preferredMediaTypes(accept: string | undefined, provided?: string[]): s
   return priorities
     .filter(isQuality)
     .sort(compareSpecs)
-    .map((priority) => provided[priorities.indexOf(priority)])
+    .map((priority) => provided[priorities.indexOf(priority)]!)
 }
 
 function quoteCount(str: string): number {
@@ -370,8 +370,8 @@ function splitMediaTypes(accept: string): string[] {
   let j = 0
 
   for (let i = 1; i < accepts.length; i++) {
-    if (quoteCount(accepts[j]) % 2 === 0) {
-      accepts[++j] = accepts[i]
+    if (quoteCount(accepts[j]!) % 2 === 0) {
+      accepts[++j] = accepts[i]!
     } else {
       accepts[j] += `,${accepts[i]}`
     }
@@ -385,8 +385,8 @@ function splitParameters(str: string): string[] {
   let j = 0
 
   for (let i = 1; i < parameters.length; i++) {
-    if (quoteCount(parameters[j]) % 2 === 0) {
-      parameters[++j] = parameters[i]
+    if (quoteCount(parameters[j]!) % 2 === 0) {
+      parameters[++j] = parameters[i]!
     } else {
       parameters[j] += `;${parameters[i]}`
     }

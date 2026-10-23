@@ -35,14 +35,14 @@ export class Accepts {
 
     // no accept header, return first given type
     if (!this.headers.accept) {
-      return mimeTypes[0]
+      return mimeTypes[0]!
     }
 
     const mimes = mimeTypes.map(extToMime)
     const accepts = this.negotiator.mediaTypes(mimes.filter(validMime) as string[])
     const [first] = accepts
 
-    return first ? mimeTypes[mimes.indexOf(first)] : false
+    return first ? mimeTypes[mimes.indexOf(first)]! : false
   }
   get type(): (types: string | string[], ...args: string[]) => string[] | string | false {
     return this.types

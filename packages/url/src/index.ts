@@ -8,12 +8,13 @@ type Regex = {
 export const getURLParams = ({ pattern, keys }: Regex, reqUrl = '/'): URLParams => {
   const matches = pattern.exec(reqUrl)
 
-  const params = {}
+  const params: URLParams = {}
 
   if (matches && typeof keys !== 'boolean')
     for (let i = 0; i < keys.length; i++) {
-      if (matches[i + 1]) {
-        params[keys[i]] = decodeURIComponent(matches[i + 1])
+      const match = matches[i + 1]
+      if (match) {
+        params[keys[i]!] = decodeURIComponent(match)
       }
     }
 

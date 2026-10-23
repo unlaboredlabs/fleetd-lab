@@ -23,7 +23,7 @@ export function parse(src: string | Buffer, _options?: DotenvParseOptions): Dote
   let match: RegExpExecArray | null
   // biome-ignore lint/suspicious/noAssignInExpressions: idiomatic regex loop
   while ((match = LINE.exec(lines)) != null) {
-    const key = match[1]
+    const key = match[1]!
     if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue
 
     let value = (match[2] || '').trim()
