@@ -46,6 +46,17 @@ export type AppRenderOptions<O extends TemplateEngineOptions = TemplateEngineOpt
     _locals: Record<string, unknown>
   }>
 
+/**
+ * Function that runs before the route handlers whose path declares the param
+ */
+export type ParamHandler<Req extends Request = Request, Res extends Response = Response> = (
+  req: Req,
+  res: Res,
+  next: NextFunction,
+  value: string,
+  name: string
+) => void | Promise<void>
+
 export type AppConstructor<Req extends Request = Request, Res extends Response = Response> = Partial<{
   noMatchHandler: Handler<Req, Res>
   onError: ErrorHandler
@@ -120,6 +131,14 @@ export interface AppInterface<Req extends Request, Res extends Response>
   use(...args: UseMethodParams<Req, Res, AppInterface<any, any>>): AppInterface<Req, Res>
 
   route(path: string): AppInterface<Req, Res>
+
+  /**
+   * Register a handler that runs before the route handlers whose path declares `:name`,
+   * once per distinct value of the param within a request
+   * @param name param name
+   * @param handler param handler
+   */
+  param(name: string, handler: ParamHandler<Req, Res>): AppInterface<Req, Res>
 
   /**
    * Extends Req / Res objects, pushes 404 and 500 handlers, dispatches middleware
