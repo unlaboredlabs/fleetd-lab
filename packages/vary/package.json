@@ -1,0 +1,39 @@
+{
+  "name": "@tinyhttp/vary",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Manipulate the HTTP Vary header",
+  "homepage": "https://github.com/tinyhttp/tinyhttp/tree/master/packages/vary#readme",
+  "engines": {
+    "node": ">=12.17.0"
+  },
+  "funding": {
+    "type": "individual",
+    "url": "https://github.com/tinyhttp/tinyhttp?sponsor=1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tinyhttp/tinyhttp.git",
+    "directory": "packages/vary"
+  },
+  "types": "./dist/index.d.ts",
+  "exports": "./dist/index.js",
+  "keywords": [
+    "tinyhttp",
+    "node.js",
+    "web framework",
+    "web",
+    "backend",
+    "vary",
+    "http",
+    "header"
+  ],
+  "files": [
+    "dist"
+  ],
+  "author": "v1rtl",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc"
+  }
+}
