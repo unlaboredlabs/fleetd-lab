@@ -28,6 +28,7 @@ import {
   CaseExpressionNode,
   CaseWhenNode,
   CaseElseNode,
+  BlockNode,
   DataTypeNode,
   ParameterizedDataTypeNode,
   DisableCommentNode,
@@ -131,6 +132,8 @@ export default class ExpressionFormatter {
         return this.formatCaseWhen(node);
       case NodeType.case_else:
         return this.formatCaseElse(node);
+      case NodeType.block:
+        return this.formatBlock(node);
       case NodeType.clause:
         return this.formatClause(node);
       case NodeType.set_operation:
@@ -205,6 +208,10 @@ export default class ExpressionFormatter {
   }
 
   private formatParenthesis(node: ParenthesisNode) {
+    if (node.openParen === '[' && this.isPrecededByParameter(node)) {
+      // Array element access like :arr[1]
+      this.layout.add(WS.NO_SPACE);
+    }
     const inlineLayout = this.formatInlineExpression(node.children, node.openParen);
 
     if (inlineLayout) {
@@ -226,6 +233,16 @@ export default class ExpressionFormatter {
 
       this.layout.add(WS.NEWLINE, WS.INDENT, node.closeParen, WS.SPACE);
     }
+  }
+
+  private isPrecededByParameter(node: ParenthesisNode): boolean {
+    const prevNode = this.nodes[this.index - 1];
+    return (
+      this.nodes[this.index] === node &&
+      !node.leadingComments &&
+      prevNode?.type === NodeType.parameter &&
+      !prevNode.trailingComments
+    );
   }
 
   private formatBetweenPredicate(node: BetweenPredicateNode) {
@@ -260,6 +277,54 @@ export default class ExpressionFormatter {
     this.layout.add(WS.NEWLINE, WS.INDENT);
     this.formatNode(node.elseKw);
     this.layout = this.formatSubExpression(node.result);
+  }
+
+  // Formats procedural block like:
+  //
+  //   BEGIN
+  //     statement1;
+  //     statement2;
+  //   END
+  //
+  // Each section (e.g. THEN ... and ELSE ... in IF statement)
+  // starts on its own line with its statements indented below it.
+  private formatBlock(node: BlockNode) {
+    node.sections.forEach(({ keyword, statements }, i) => {
+      if (i > 0 || this.isBlockStartingOnNewLine(keyword)) {
+        this.layout.add(WS.NEWLINE, WS.INDENT);
+      }
+      this.layout.add(this.showKw(keyword));
+
+      this.layout.indentation.increaseBlockLevel();
+      statements.forEach(statement => {
+        this.layout.add(WS.NEWLINE, WS.INDENT);
+        this.layout = this.formatSubExpression(statement.children);
+        if (!statement.hasSemicolon) {
+          // do nothing
+        } else if (this.cfg.newlineBeforeSemicolon) {
+          this.layout.add(WS.NEWLINE, WS.INDENT, ';');
+        } else {
+          this.layout.add(WS.NO_NEWLINE, ';');
+        }
+      });
+      this.layout.indentation.decreaseBlockLevel();
+    });
+    this.layout.add(WS.NEWLINE, WS.INDENT, this.showKw(node.endKw), WS.SPACE);
+  }
+
+  // BEGIN starts on a new line (e.g. after the header of CREATE PROCEDURE),
+  // except directly after DO, as in "DO BEGIN ... END".
+  // Other block keywords (like THEN and DO) stay at the end of the line that precedes them.
+  private isBlockStartingOnNewLine(keyword: KeywordNode): boolean {
+    if (!/^BEGIN\b/u.test(keyword.text) || this.layout.getLayoutItems().length === 0) {
+      return false;
+    }
+    const prevNode = this.nodes[this.index - 1];
+    return !(
+      prevNode?.type === NodeType.keyword &&
+      prevNode.text === 'DO' &&
+      !prevNode.trailingComments
+    );
   }
 
   private formatClause(node: ClauseNode) {

@@ -23,6 +23,10 @@ export enum TokenType {
   THEN = 'THEN',
   LIMIT = 'LIMIT',
   BETWEEN = 'BETWEEN',
+  // Procedural blocks (like BEGIN ... END), only produced by dialect-specific postProcess()
+  BLOCK_START = 'BLOCK_START', // Keyword that opens a block, like BEGIN
+  BLOCK_MIDDLE = 'BLOCK_MIDDLE', // Keyword that starts another section of a block, like ELSE
+  BLOCK_END = 'BLOCK_END', // Keyword that closes a block, like END
   AND = 'AND',
   OR = 'OR',
   XOR = 'XOR',
