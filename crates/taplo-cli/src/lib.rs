@@ -58,7 +58,7 @@ impl<E: Environment> Taplo<E> {
         if let Some(c) = config_path {
             tracing::info!(path = ?c, "found configuration file");
             match self.env.read_file(&c).await {
-                Ok(cfg) => match toml::from_str(str::from_utf8(&cfg)?) {
+                Ok(cfg) => match Config::from_toml(str::from_utf8(&cfg)?) {
                     Ok(c) => config = c,
                     Err(error) => {
                         tracing::warn!(%error, "invalid configuration file");

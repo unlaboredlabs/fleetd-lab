@@ -74,6 +74,11 @@ pub fn escape(s: &str) -> String {
             '\u{000D}' => escaped.push_str(r#"\r"#),
             '\u{0022}' => escaped.push_str(r#"\""#),
             '\u{005C}' => escaped.push_str(r#"\\"#),
+            // Other control characters are not allowed in strings,
+            // \uXXXX is understood by both TOML 1.0 and 1.1.
+            '\u{0000}'..='\u{001F}' | '\u{007F}' => {
+                escaped.push_str(&format!("\\u{:04X}", c as u32));
+            }
             _ => {
                 escaped.push(c);
             }

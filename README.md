@@ -8,7 +8,7 @@
 
 # Taplo
 
-This is the repository for Taplo, a TOML v1.0.0 toolkit, more details on the [website](https://taplo.tamasfe.dev).
+This is the repository for Taplo, a TOML v1.1.0 toolkit, more details on the [website](https://taplo.tamasfe.dev).
 
 
 - [Taplo](#taplo)
@@ -19,7 +19,7 @@ This is the repository for Taplo, a TOML v1.0.0 toolkit, more details on the [we
 
 The project is very young, so bugs and incomplete features are expected, so [any help is welcome](CONTRIBUTING.md)!
 
-The correctness of the TOML parsing and decoding is not yet entirely guaranteed (as there is no official 1.0.0 compliance test suite yet).
+TOML parsing and decoding is checked against the [toml-test](https://github.com/toml-lang/toml-test) suite for TOML 1.1.0 (and is backwards compatible with TOML 1.0.0 documents).
 
 ## Contributing
 
