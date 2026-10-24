@@ -26,6 +26,7 @@ body:
         - Oracle PL/SQL
         - PostgreSQL
         - Amazon Redshift
+        - SAP HANA
         - SingleStoreDB
         - Snowflake
         - Spark

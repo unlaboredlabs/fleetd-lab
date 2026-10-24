@@ -11,6 +11,7 @@ const dialectNameMap: Record<keyof typeof allDialects | 'tsql', keyof typeof all
   db2: 'db2',
   db2i: 'db2i',
   duckdb: 'duckdb',
+  hana: 'hana',
   hive: 'hive',
   mariadb: 'mariadb',
   mysql: 'mysql',
