@@ -2,10 +2,9 @@
 
 use crate::{
     dom::{self, FromSyntax},
-    syntax::{SyntaxKind, SyntaxKind::*, SyntaxNode},
+    syntax::{Lexer, SyntaxKind, SyntaxKind::*, SyntaxNode},
     util::{allowed_chars, check_escape},
 };
-use logos::{Lexer, Logos};
 use rowan::{GreenNode, GreenNodeBuilder, TextRange, TextSize};
 use std::convert::TryInto;
 
@@ -69,7 +68,7 @@ pub(crate) struct Parser<'p> {
     //      special cases.
     error_whitelist: u16,
 
-    lexer: Lexer<'p, SyntaxKind>,
+    lexer: Lexer<'p>,
     builder: GreenNodeBuilder<'p>,
     errors: Vec<Error>,
 }
@@ -105,7 +104,7 @@ impl<'p> Parser<'p> {
             skip_whitespace: true,
             key_pattern_syntax: false,
             error_whitelist: 0,
-            lexer: SyntaxKind::lexer(source),
+            lexer: Lexer::new(source),
             builder: Default::default(),
             errors: Default::default(),
         }
@@ -567,9 +566,8 @@ impl<'p> Parser<'p> {
                 }
             }
             FLOAT => {
-                if self.lexer.slice().starts_with('0') {
-                    self.error("zero-padded numbers are not allowed")
-                } else if self.lexer.slice().starts_with('+') {
+                // Dotted keys made of digits (e.g. `1.2` or `01.23`) are lexed as floats.
+                if self.lexer.slice().contains('+') {
                     Err(())
                 } else {
                     for (i, s) in self.lexer.slice().split('.').enumerate() {
@@ -596,19 +594,14 @@ impl<'p> Parser<'p> {
         };
 
         match t {
-            BOOL | DATE_TIME_OFFSET | DATE_TIME_LOCAL | DATE | TIME => self.token(),
+            BOOL => self.token(),
+            DATE_TIME_OFFSET | DATE_TIME_LOCAL | DATE | TIME => {
+                match check_date_time(self.lexer.slice()) {
+                    Ok(()) => self.token(),
+                    Err(message) => self.error(message),
+                }
+            }
             INTEGER => {
-                // This is probably a logos bug or a priority issue,
-                // for some reason "1979-05-27" gets lexed as INTEGER.
-                if !self.lexer.slice().starts_with('-') && self.lexer.slice().contains('-') {
-                    return self.token_as(DATE);
-                }
-
-                // FIXME: probably another logos bug.
-                if self.lexer.slice().contains(':') {
-                    return self.token_as(TIME);
-                }
-
                 // This could've been done more elegantly probably.
                 if (self.lexer.slice().starts_with('0') && self.lexer.slice() != "0")
                     || (self.lexer.slice().starts_with("+0") && self.lexer.slice() != "+0")
@@ -643,11 +636,6 @@ impl<'p> Parser<'p> {
                 }
             }
             FLOAT => {
-                // FIXME: probably another logos bug.
-                if self.lexer.slice().contains(':') {
-                    return self.token_as(TIME);
-                }
-
                 let int_slice = if self.lexer.slice().contains('.') {
                     self.lexer.slice().split('.').next().unwrap()
                 } else {
@@ -893,6 +881,60 @@ fn check_underscores(s: &str, radix: u32) -> bool {
     }
 
     true
+}
+
+/// Checks the ranges of the fields of a date and/or time token,
+/// its shape is already checked by the lexer.
+fn check_date_time(s: &str) -> Result<(), &'static str> {
+    let field = |s: &str, start: usize| -> u32 { s[start..start + 2].parse().unwrap() };
+
+    let time = if s.as_bytes().get(4) == Some(&b'-') {
+        let year: u32 = s[0..4].parse().unwrap();
+        let month = field(s, 5);
+        let day = field(s, 8);
+
+        if !(1..=12).contains(&month) {
+            return Err("invalid month");
+        }
+
+        let leap_year = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+        let days_in_month = match month {
+            2 if leap_year => 29,
+            2 => 28,
+            4 | 6 | 9 | 11 => 30,
+            _ => 31,
+        };
+
+        if day == 0 || day > days_in_month {
+            return Err("invalid day of month");
+        }
+
+        s.get(11..)
+    } else {
+        Some(s)
+    };
+
+    if let Some(time) = time {
+        if field(time, 0) > 23 {
+            return Err("invalid hour");
+        }
+
+        if field(time, 3) > 59 {
+            return Err("invalid minute");
+        }
+
+        if time.as_bytes().get(5) == Some(&b':') && field(time, 6) > 59 {
+            return Err("invalid second");
+        }
+
+        if let Some(offset) = time.find(['+', '-']) {
+            if field(time, offset + 1) > 23 || field(time, offset + 4) > 59 {
+                return Err("invalid time offset");
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// The final results of a parsing.

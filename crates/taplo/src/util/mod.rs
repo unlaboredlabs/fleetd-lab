@@ -12,85 +12,47 @@ pub use escape::check_escape;
 pub use escape::{escape, unescape};
 
 pub(crate) mod allowed_chars {
+    //! Checks for characters that are not allowed in comments and strings,
+    //! the returned indices are byte offsets of the invalid characters.
+    //!
+    //! All of them allow tab and any non-ASCII character,
+    //! but no other control characters (U+0000 to U+001F and U+007F).
+    //! Multi-line strings also allow newlines (LF or CRLF), but not a bare CR.
+
     pub(crate) fn comment(s: &str) -> Result<(), Vec<usize>> {
-        let mut err_indices = Vec::new();
-
-        for (i, c) in s.chars().enumerate() {
-            if c != '\t' && c.is_control() {
-                err_indices.push(i);
-            }
-        }
-
-        if err_indices.is_empty() {
-            Ok(())
-        } else {
-            Err(err_indices)
-        }
+        check(s, false)
     }
 
     pub(crate) fn string(s: &str) -> Result<(), Vec<usize>> {
-        let mut err_indices = Vec::new();
-
-        for (i, c) in s.chars().enumerate() {
-            if c != '\t'
-                && (('\u{0000}'..='\u{0008}').contains(&c)
-                    || ('\u{000A}'..='\u{001F}').contains(&c)
-                    || c == '\u{007F}')
-            {
-                err_indices.push(i);
-            }
-        }
-
-        if err_indices.is_empty() {
-            Ok(())
-        } else {
-            Err(err_indices)
-        }
+        check(s, false)
     }
 
     pub(crate) fn multi_line_string(s: &str) -> Result<(), Vec<usize>> {
-        let mut err_indices = Vec::new();
-
-        for (i, c) in s.chars().enumerate() {
-            if c != '\t'
-                && c != '\n'
-                && c != '\r'
-                && (('\u{0000}'..='\u{0008}').contains(&c)
-                    || ('\u{000A}'..='\u{001F}').contains(&c)
-                    || c == '\u{007F}')
-            {
-                err_indices.push(i);
-            }
-        }
-
-        if err_indices.is_empty() {
-            Ok(())
-        } else {
-            Err(err_indices)
-        }
+        check(s, true)
     }
 
     pub(crate) fn string_literal(s: &str) -> Result<(), Vec<usize>> {
-        let mut err_indices = Vec::new();
-
-        for (i, c) in s.chars().enumerate() {
-            if c != '\t' && c.is_control() {
-                err_indices.push(i);
-            }
-        }
-
-        if err_indices.is_empty() {
-            Ok(())
-        } else {
-            Err(err_indices)
-        }
+        check(s, false)
     }
 
     pub(crate) fn multi_line_string_literal(s: &str) -> Result<(), Vec<usize>> {
+        check(s, true)
+    }
+
+    fn check(s: &str, multi_line: bool) -> Result<(), Vec<usize>> {
         let mut err_indices = Vec::new();
 
-        for (i, c) in s.chars().enumerate() {
-            if c != '\t' && c != '\n' && c != '\r' && c.is_control() {
+        let mut chars = s.char_indices().peekable();
+        while let Some((i, c)) = chars.next() {
+            let allowed = match c {
+                '\t' => true,
+                '\n' => multi_line,
+                '\r' => multi_line && matches!(chars.peek(), Some((_, '\n'))),
+                '\u{0000}'..='\u{001F}' | '\u{007F}' => false,
+                _ => true,
+            };
+
+            if !allowed {
                 err_indices.push(i);
             }
         }

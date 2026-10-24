@@ -3,12 +3,14 @@ use logos::{Lexer, Logos};
 /// Escaping based on:
 ///
 /// \b         - backspace       (U+0008)
+/// \e         - escape          (U+001B)
 /// \t         - tab             (U+0009)
 /// \n         - linefeed        (U+000A)
 /// \f         - form feed       (U+000C)
 /// \r         - carriage return (U+000D)
 /// \"         - quote           (U+0022)
 /// \\         - backslash       (U+005C)
+/// \xHH       - unicode         (U+00HH)
 /// \uXXXX     - unicode         (U+XXXX)
 /// \UXXXXXXXX - unicode         (U+XXXXXXXX)
 #[derive(Logos, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -19,7 +21,10 @@ pub enum Escape {
     #[token(r#"\t"#)]
     Tab,
 
-    #[regex(r#"(\\\s*\n)|(\\\s*\r\n)"#)]
+    #[token(r#"\e"#)]
+    Esc,
+
+    #[regex(r#"\\[ \t]*\r?\n[ \t\r\n]*"#)]
     Newline,
 
     #[token(r#"\n"#)]
@@ -36,6 +41,9 @@ pub enum Escape {
 
     #[token(r#"\\"#)]
     Backslash,
+
+    #[regex(r#"\\x[0-9A-Fa-f][0-9A-Fa-f]"#)]
+    Hex,
 
     // Same thing repeated 4 times, but the {n} repetition syntax is not supported by Logos
     #[regex(r#"\\u[0-9A-Fa-f_][0-9A-Fa-f_][0-9A-Fa-f_][0-9A-Fa-f_]"#)]
@@ -66,6 +74,10 @@ pub fn escape(s: &str) -> String {
             '\u{000D}' => escaped.push_str(r#"\r"#),
             '\u{0022}' => escaped.push_str(r#"\""#),
             '\u{005C}' => escaped.push_str(r#"\\"#),
+            // Other control characters are not allowed unescaped.
+            c if c.is_ascii_control() => {
+                escaped.push_str(&format!("\\u{:04X}", c as u32));
+            }
             _ => {
                 escaped.push(c);
             }
@@ -86,12 +98,18 @@ pub fn unescape(s: &str) -> Result<String, usize> {
         match t {
             Backspace => new_s += "\u{0008}",
             Tab => new_s += "\u{0009}",
+            Esc => new_s += "\u{001B}",
             LineFeed => new_s += "\u{000A}",
             FormFeed => new_s += "\u{000C}",
             CarriageReturn => new_s += "\u{000D}",
             Quote => new_s += "\u{0022}",
             Backslash => new_s += "\u{005C}",
             Newline => {}
+            Hex => {
+                new_s.push(char::from(
+                    u8::from_str_radix(&lexer.slice()[2..], 16).map_err(|_| lexer.span().start)?,
+                ));
+            }
             Unicode => {
                 new_s += &std::char::from_u32(
                     u32::from_str_radix(&lexer.slice()[2..], 16).map_err(|_| lexer.span().start)?,
@@ -107,6 +125,9 @@ pub fn unescape(s: &str) -> Result<String, usize> {
                 .to_string();
             }
             Unknown => return Err(lexer.span().end),
+            // Logos does not backtrack to `Unknown` if a longer escape
+            // fails to match (e.g. a backslash followed by spaces only).
+            UnEscaped if lexer.slice().contains('\\') => return Err(lexer.span().start),
             UnEscaped => {
                 new_s += lexer.slice();
             }
@@ -126,6 +147,8 @@ pub fn check_escape(s: &str) -> Result<(), Vec<usize>> {
         match t {
             Backspace => {}
             Tab => {}
+            Esc => {}
+            Hex => {}
             LineFeed => {}
             FormFeed => {}
             CarriageReturn => {}
@@ -165,6 +188,7 @@ pub fn check_escape(s: &str) -> Result<(), Vec<usize>> {
                 };
             }
             Unknown => invalid.push(lexer.span().start),
+            UnEscaped if lexer.slice().contains('\\') => invalid.push(lexer.span().start),
             UnEscaped => {}
         }
     }
