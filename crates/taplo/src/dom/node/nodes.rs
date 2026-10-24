@@ -4,7 +4,6 @@ use crate::{
     syntax::{SyntaxElement, SyntaxKind},
     util::{shared::Shared, unescape},
 };
-use logos::Lexer;
 use once_cell::unsync::OnceCell;
 use rowan::{NodeOrToken, TextRange};
 use std::{fmt::Write, iter::once, sync::Arc};
@@ -266,17 +265,25 @@ impl core::fmt::Display for Key {
             return s.fmt(f);
         }
 
-        if !matches!(
-            Lexer::<SyntaxKind>::new(self.value()).next(),
-            Some(SyntaxKind::IDENT) | None
-        ) {
-            f.write_char('\'')?;
-            self.value().fmt(f)?;
-            f.write_char('\'')?;
-            return Ok(());
+        let value = self.value();
+
+        if !value.is_empty()
+            && value
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        {
+            return value.fmt(f);
         }
 
-        self.value().fmt(f)
+        if value.contains(|c: char| c == '\'' || c.is_control()) {
+            f.write_char('"')?;
+            crate::util::escape(value).fmt(f)?;
+            f.write_char('"')
+        } else {
+            f.write_char('\'')?;
+            value.fmt(f)?;
+            f.write_char('\'')
+        }
     }
 }
 

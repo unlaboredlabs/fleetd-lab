@@ -3,11 +3,15 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use taplo::formatter;
+use taplo::{
+    dom::{self, node::Key, KeyOrIndex, Keys},
+    formatter, parser,
+    rowan::TextSize,
+};
 use url::Url;
 
 use crate::{
@@ -71,6 +75,58 @@ impl Debug for Config {
 }
 
 impl Config {
+    /// Parse a configuration file with Taplo's own parser,
+    /// so that every TOML version Taplo supports is accepted.
+    ///
+    /// Errors include the line and column of the problem.
+    pub fn from_toml(src: &str) -> Result<Self, anyhow::Error> {
+        let parse = parser::parse(src);
+
+        if !parse.errors.is_empty() {
+            return Err(anyhow!(parse
+                .errors
+                .iter()
+                .map(|error| format!(
+                    "{} at {}",
+                    error.message,
+                    line_column(src, error.range.start())
+                ))
+                .collect::<Vec<_>>()
+                .join("\n")));
+        }
+
+        let dom = parse.into_dom();
+
+        if let Err(errors) = dom.validate() {
+            return Err(anyhow!(errors
+                .map(|error| semantic_error_message(src, &error))
+                .collect::<Vec<_>>()
+                .join("\n")));
+        }
+
+        let value = serde_json::to_value(&dom)?;
+
+        serde_path_to_error::deserialize(value).map_err(|error| {
+            let keys = Keys::new(error.path().iter().filter_map(|segment| match segment {
+                serde_path_to_error::Segment::Map { key } => Some(KeyOrIndex::Key(Key::new(key))),
+                serde_path_to_error::Segment::Seq { index } => Some(KeyOrIndex::Index(*index)),
+                _ => None,
+            }));
+
+            if keys.is_empty() {
+                return anyhow!("{}", error.inner());
+            }
+
+            let location = dom
+                .path(&keys)
+                .and_then(|node| node.text_ranges(false).next())
+                .map(|range| format!(" at {}", line_column(src, range.start())))
+                .unwrap_or_default();
+
+            anyhow!("{} for key `{}`{location}", error.inner(), error.path())
+        })
+    }
+
     /// Prepare the configuration for further use.
     pub fn prepare(&mut self, e: &impl Environment, base: &Path) -> Result<(), anyhow::Error> {
         self.make_absolute(e, base);
@@ -380,4 +436,108 @@ pub struct Plugin {
     /// Optional settings for the plugin.
     #[serde(default)]
     pub settings: Option<Value>,
+}
+
+/// Human-friendly 1-based line and column of an offset.
+fn line_column(src: &str, offset: TextSize) -> String {
+    let before = &src[..usize::from(offset).min(src.len())];
+    let line = before.matches('\n').count() + 1;
+    let column = before
+        .rsplit('\n')
+        .next()
+        .map_or(0, |line| line.chars().count())
+        + 1;
+    format!("line {line} column {column}")
+}
+
+fn semantic_error_message(src: &str, error: &dom::Error) -> String {
+    let (key, range) = match error {
+        dom::Error::ConflictingKeys { key, .. } => (Some(key), key.text_ranges().next()),
+        dom::Error::ExpectedTable { not_table, .. } => {
+            (Some(not_table), not_table.text_ranges().next())
+        }
+        dom::Error::ExpectedArrayOfTables {
+            not_array_of_tables,
+            ..
+        } => (
+            Some(not_array_of_tables),
+            not_array_of_tables.text_ranges().next(),
+        ),
+        dom::Error::InvalidEscapeSequence { string } => (None, Some(string.text_range())),
+        dom::Error::UnexpectedSyntax { syntax } => (None, Some(syntax.text_range())),
+        dom::Error::Query(_) => (None, None),
+    };
+
+    let mut message = error.to_string();
+
+    if let Some(key) = key {
+        message += &format!(" `{key}`");
+    }
+
+    if let Some(range) = range {
+        message += &format!(" at {}", line_column(src, range.start()));
+    }
+
+    message
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_from_toml_1_1() {
+        let config = Config::from_toml(
+            r#"
+include = ["**/*.toml"]
+
+formatting = {
+  align_entries = true, # TOML 1.1 multi-line inline table
+  column_width = 100,
+}
+
+[[rule]]
+include = ["a\x41\e.toml"]
+keys = ["dependencies"]
+
+[rule.formatting]
+reorder_keys = true
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(config.include, Some(vec!["**/*.toml".into()]));
+
+        let formatting = config.global_options.formatting.unwrap();
+        assert_eq!(formatting.align_entries, Some(true));
+        assert_eq!(formatting.column_width, Some(100));
+
+        assert_eq!(config.rule.len(), 1);
+        assert_eq!(config.rule[0].include, Some(vec!["aA\u{1b}.toml".into()]));
+        assert_eq!(
+            config.rule[0]
+                .options
+                .formatting
+                .as_ref()
+                .unwrap()
+                .reorder_keys,
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn config_from_toml_errors() {
+        let error = |src: &str| Config::from_toml(src).unwrap_err().to_string();
+
+        assert_eq!(error("include = ["), "unexpected EOF at line 1 column 12");
+        assert_eq!(
+            error("a = 1\na = 2"),
+            "conflicting keys `a` at line 2 column 1"
+        );
+        assert_eq!(error("bogus = 2"), "unknown field `bogus`");
+        assert_eq!(
+            error("[[rule]]\ninclude = 1"),
+            "invalid type: integer `1`, expected a sequence for key `rule[0].include` at line 2 column 11"
+        );
+    }
 }

@@ -8,7 +8,7 @@ use taplo::{
     syntax::{
         SyntaxElement,
         SyntaxKind::{
-            ARRAY, COMMENT, MULTI_LINE_STRING, MULTI_LINE_STRING_LITERAL, NEWLINE,
+            ARRAY, COMMENT, INLINE_TABLE, MULTI_LINE_STRING, MULTI_LINE_STRING_LITERAL, NEWLINE,
             TABLE_ARRAY_HEADER, TABLE_HEADER, WHITESPACE,
         },
         SyntaxNode,
@@ -102,12 +102,17 @@ pub fn create_folding_ranges(syntax: &SyntaxNode, mapper: &Mapper) -> Vec<Foldin
                     SyntaxElement::Node(n) => {
                         for d in n.descendants_with_tokens() {
                             match d.kind() {
-                                ARRAY => {
-                                    if d.as_node()
-                                        .unwrap()
-                                        .descendants_with_tokens()
-                                        .any(|t| t.kind() == NEWLINE)
-                                    {
+                                ARRAY | INLINE_TABLE => {
+                                    let node = d.as_node().unwrap();
+                                    // Inline tables are multi-line only if they have
+                                    // newlines of their own, not just in nested values.
+                                    let multi_line = if d.kind() == ARRAY {
+                                        node.descendants_with_tokens().any(|t| t.kind() == NEWLINE)
+                                    } else {
+                                        node.children_with_tokens().any(|t| t.kind() == NEWLINE)
+                                    };
+
+                                    if multi_line {
                                         let start =
                                             mapper.position(d.text_range().start()).unwrap();
                                         let end = mapper
@@ -220,4 +225,39 @@ pub fn create_folding_ranges(syntax: &SyntaxNode, mapper: &Mapper) -> Vec<Foldin
     }
 
     folding_ranges
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use taplo::parser::parse;
+
+    fn regions(src: &str) -> Vec<(u32, u32)> {
+        let syntax = parse(src).into_syntax();
+        let mapper = Mapper::new_utf16(src, false);
+
+        let mut regions: Vec<_> = create_folding_ranges(&syntax, &mapper)
+            .into_iter()
+            .filter(|r| r.kind == Some(FoldingRangeKind::Region))
+            .map(|r| (r.start_line, r.end_line))
+            .collect();
+        regions.sort_unstable();
+        regions
+    }
+
+    #[test]
+    fn folding_multi_line_inline_table() {
+        let src = r#"a = {
+  b = 1, # comment
+  c = [
+    1,
+  ],
+}
+d = { e = 1 }
+f = { g = [
+  1,
+] }
+"#;
+        assert_eq!(regions(src), [(0, 5), (2, 4), (7, 9)]);
+    }
 }

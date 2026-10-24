@@ -249,6 +249,15 @@ impl Query {
             None => return true,
         };
 
+        // Blank lines inside multi-line inline tables and arrays
+        // are not top-level lines.
+        if before_syntax
+            .parent_ancestors()
+            .any(|a| matches!(a.kind(), INLINE_TABLE | ARRAY))
+        {
+            return false;
+        }
+
         match &self.after {
             Some(after) => {
                 if matches!(after.syntax.kind(), WHITESPACE | NEWLINE) {
@@ -464,4 +473,49 @@ fn full_range(keys: &Keys, node: &Node) -> TextRange {
     };
 
     join_ranges(last_key.chain(node.text_ranges(true)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use taplo::parser::parse;
+
+    fn query(src: &str) -> Query {
+        let offset = src.find('|').unwrap();
+        let src = src.replacen('|', "", 1);
+        let dom = parse(&src).into_dom();
+        Query::at(&dom, TextSize::from(offset as u32))
+    }
+
+    #[test]
+    fn empty_line_at_top_level() {
+        let q = query("[table]\na = 1\n|\n");
+        assert!(q.empty_line());
+
+        let q = query("[table]\na = 1\n  |\nb = 2\n");
+        assert!(q.empty_line());
+    }
+
+    #[test]
+    fn empty_line_in_multi_line_inline_table() {
+        let q = query("[table]\na = {\n  b = 1, # comment\n  |\n}\n");
+        assert!(!q.empty_line());
+        assert!(q.in_entry_value());
+        assert!(q.in_inline_table());
+        assert_eq!(q.dom_node().unwrap().0.to_string(), "table.a");
+
+        let q = query("a = {\n  b = 1,\n  c = {\n    |\n  },\n}\n");
+        assert!(!q.empty_line());
+        assert!(q.in_inline_table());
+        assert_eq!(q.dom_node().unwrap().0.to_string(), "a.c");
+    }
+
+    #[test]
+    fn empty_line_in_multi_line_array() {
+        let q = query("[table]\na = [\n  1,\n  |\n]\n");
+        assert!(!q.empty_line());
+        assert!(q.in_entry_value());
+        assert!(q.in_array());
+        assert_eq!(q.dom_node().unwrap().0.to_string(), "table.a");
+    }
 }
