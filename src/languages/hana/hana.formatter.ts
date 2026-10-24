@@ -222,8 +222,28 @@ const reservedKeywordPhrases = expandPhrases([
   'FOR SYSTEM_TIME',
   'FOR APPLICATION_TIME',
   'FOR EACH {ROW | STATEMENT}',
-  'EXIT HANDLER FOR',
-  'CONTINUE HANDLER FOR',
+  '{EXIT | CONTINUE} HANDLER FOR [SQL_ERROR_CODE]',
+  // Non-reserved keywords that are only keywords in these phrases.
+  // Elsewhere they are plain names, e.g. SELECT id, page, unit FROM t.
+  // Phrases that could also be a table name and alias (e.g. PAGE LOADABLE, NUMA NODE) are left out.
+  // - table options:
+  'LOAD UNIT {COLUMN | PAGE | TABLE | DEFAULT}',
+  'PRELOAD ALL',
+  'NO LOGGING RETENTION',
+  '{WITH | ENABLE | DISABLE} SCHEMA FLEXIBILITY',
+  'GENERATED ALWAYS AS',
+  'SYSTEM VERSIONING HISTORY TABLE',
+  // - partitioning:
+  'PARTITION OTHERS DYNAMIC [THRESHOLD | INTERVAL]',
+  'AT LOCATION',
+  'SUBPARTITION BY',
+  // - sequences:
+  'RESET BY',
+  // - time travel and sampling:
+  'AS OF COMMIT ID',
+  'TABLESAMPLE {BERNOULLI | SYSTEM}',
+  // - SQLScript:
+  'CONDITION FOR SQL_ERROR_CODE',
 ]);
 
 const reservedDataTypePhrases = expandPhrases([]);
@@ -336,9 +356,12 @@ function disambiguateClauses(tokens: Token[]): Token[] {
   // Nesting depth of CASE expressions
   let caseDepth = 0;
 
-  return tokens.flatMap((token, i): Token | Token[] => {
-    const prev = prevToken(tokens, i);
-    if (isStatementStart(prev, caseDepth > 0)) {
+  const result: Token[] = [];
+  const disambiguate = (token: Token, i: number): Token | Token[] => {
+    // the already converted previous token, e.g. a table named do is an identifier
+    const prevIndex = nextIndex(result, result.length, -1);
+    const prev = result[prevIndex] ?? EMPTY;
+    if (isStatementStart(prev, prevToken(result, prevIndex), caseDepth > 0)) {
       statement = undefined;
     }
     if (token.type === TokenType.CASE) {
@@ -365,6 +388,16 @@ function disambiguateClauses(tokens: Token[]): Token[] {
     ) {
       return toKeyword(token);
     }
+    // CALL ... WITH OVERVIEW (elsewhere overview is a name, e.g. of a common table expression)
+    if (
+      token.type === TokenType.IDENTIFIER &&
+      token.text.toUpperCase() === 'OVERVIEW' &&
+      prev.type === TokenType.RESERVED_KEYWORD &&
+      prev.text === 'WITH' &&
+      statement?.text === 'CALL'
+    ) {
+      return { ...token, type: TokenType.RESERVED_KEYWORD, text: 'OVERVIEW' };
+    }
     if (token.type !== TokenType.RESERVED_CLAUSE && token.type !== TokenType.RESERVED_SELECT) {
       return token;
     }
@@ -380,9 +413,14 @@ function disambiguateClauses(tokens: Token[]): Token[] {
     if (token.type === TokenType.RESERVED_SELECT) {
       return token;
     }
-    // REPLACE(...) and LANGUAGE(...) are function calls
+    // REPLACE(...) and LANGUAGE(...) are function calls, but not table names like CREATE TABLE language (...)
     const next = nextToken(tokens, i);
-    if (next.type === TokenType.OPEN_PAREN && next.text === '(' && functions.includes(token.text)) {
+    if (
+      next.type === TokenType.OPEN_PAREN &&
+      next.text === '(' &&
+      functions.includes(token.text) &&
+      !isBeforeTableName(prev)
+    ) {
       return { ...token, type: TokenType.RESERVED_FUNCTION_NAME };
     }
     if (
@@ -391,10 +429,10 @@ function disambiguateClauses(tokens: Token[]): Token[] {
       // END IF, END WHILE, END FOR, END LOOP
       (prev.type === TokenType.END && ['IF', 'WHILE', 'FOR', 'LOOP'].includes(token.text)) ||
       // CREATE OR REPLACE ...
-      (token.text === 'REPLACE' && prev.type === TokenType.OR) ||
+      (token.text === 'REPLACE' && prev.text === 'OR') ||
       // trigger events, e.g. AFTER INSERT OR UPDATE ON ...
       (['INSERT', 'UPDATE', 'DELETE'].includes(token.text) &&
-        (prev.type === TokenType.OR || ['BEFORE', 'AFTER', 'OF'].includes(prev.text))) ||
+        ['OR', 'BEFORE', 'AFTER', 'OF'].includes(prev.text)) ||
       // range partitions, e.g. PARTITION 1 <= VALUES < 10
       (token.text === 'VALUES' && prev.type === TokenType.OPERATOR) ||
       (alterTableClauses.includes(token.text) && !/^ALTER (VIRTUAL )?TABLE$/.test(statement.text))
@@ -415,7 +453,13 @@ function disambiguateClauses(tokens: Token[]): Token[] {
       return toKeywordOrIdentifier(token, prev, next, statement);
     }
     return token;
+  };
+
+  tokens.forEach((token, i) => {
+    const converted = disambiguate(token, i);
+    result.push(...(Array.isArray(converted) ? converted : [converted]));
   });
+  return result;
 }
 
 const toKeyword = (token: Token): Token => ({ ...token, type: TokenType.RESERVED_KEYWORD });
@@ -442,12 +486,32 @@ const toKeywordOrIdentifier = (
   ) {
     return toKeyword(token);
   }
-  if (isBeforeExpression(prev) || isAfterExpression(next)) {
-    return { ...token, type: TokenType.IDENTIFIER, text: token.raw };
+  if (
+    isBeforeExpression(prev) ||
+    isAfterExpression(next) ||
+    isBeforeTableName(prev) ||
+    (prev.type === TokenType.RESERVED_KEYWORD && prev.text === 'AS')
+  ) {
+    return toIdentifier(token);
   }
   // e.g. UNLOAD PRIORITY 5, AS OF COMMIT ID 5
   return toKeyword(token);
 };
+
+const toIdentifier = (token: Token): Token => ({
+  ...token,
+  type: TokenType.IDENTIFIER,
+  text: token.raw,
+});
+
+// True when the token can be followed by a table name
+const isBeforeTableName = (prev: Token): boolean =>
+  prev.type === TokenType.RESERVED_JOIN ||
+  (prev.type === TokenType.RESERVED_KEYWORD && prev.text === 'USING') ||
+  (prev.type === TokenType.RESERVED_CLAUSE &&
+    /^(FROM|DELETE (HISTORY )?FROM|(INSERT |MERGE )?INTO|UPDATE|UPSERT|REPLACE|.* TABLE)$/.test(
+      prev.text
+    ));
 
 // True when the token can be followed by a column name or other expression
 const isBeforeExpression = (prev: Token): boolean =>
@@ -494,7 +558,7 @@ const isAfterExpression = (next: Token): boolean =>
     TokenType.LIMIT,
   ].includes(next.type) ||
   (next.type === TokenType.RESERVED_KEYWORD &&
-    ['AS', 'IS', 'IN', 'NOT', 'LIKE', 'ASC', 'DESC', 'NULLS'].includes(next.text));
+    ['AS', 'IS', 'IN', 'NOT', 'LIKE', 'ASC', 'DESC', 'NULLS', 'ON', 'USING'].includes(next.text));
 
 // Splits a two-word clause token like IMPORT FROM into two clause tokens
 function splitClause(token: Token): Token[] {
@@ -512,13 +576,17 @@ const isTriggerEvent = (token: Token): boolean =>
 
 // True when the token preceding a statement is the end of previous statement or block opener.
 // THEN and ELSE only open a block in SQLScript IF statements, not inside CASE expressions.
-const isStatementStart = (prev: Token, inCase: boolean): boolean =>
+const isStatementStart = (prev: Token, prev2: Token, inCase: boolean): boolean =>
   prev.type === TokenType.EOF ||
   prev.type === TokenType.DELIMITER ||
   (!inCase && (prev.type === TokenType.THEN || prev.type === TokenType.ELSE)) ||
-  (prev.type === TokenType.RESERVED_CLAUSE && /^(BEGIN|DO|LOOP)\b/.test(prev.text)) ||
+  // BEGIN, and DO or LOOP whether they are clauses or keywords (e.g. WHILE ... DO), but not identifiers
+  ((prev.type === TokenType.RESERVED_CLAUSE || prev.type === TokenType.RESERVED_KEYWORD) &&
+    /^(BEGIN|DO|LOOP)\b/.test(prev.text)) ||
   // the condition of DECLARE ... HANDLER FOR <condition> <statement>
-  (prev.type === TokenType.RESERVED_KEYWORD_PHRASE && / HANDLER FOR$/.test(prev.text));
+  (prev.type === TokenType.RESERVED_KEYWORD_PHRASE && / HANDLER FOR$/.test(prev.text)) ||
+  // DECLARE ... HANDLER FOR SQL_ERROR_CODE <number> <statement>
+  (prev.type === TokenType.NUMBER && / HANDLER FOR SQL_ERROR_CODE$/.test(prev2.text));
 
 // True when WITH at index i is followed by: [RECURSIVE] name [(columns)] AS
 function isCommonTableExpression(tokens: Token[], i: number): boolean {
