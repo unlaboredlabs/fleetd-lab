@@ -8,7 +8,7 @@ use taplo::{
     syntax::{
         SyntaxElement,
         SyntaxKind::{
-            ARRAY, COMMENT, MULTI_LINE_STRING, MULTI_LINE_STRING_LITERAL, NEWLINE,
+            ARRAY, COMMENT, INLINE_TABLE, MULTI_LINE_STRING, MULTI_LINE_STRING_LITERAL, NEWLINE,
             TABLE_ARRAY_HEADER, TABLE_HEADER, WHITESPACE,
         },
         SyntaxNode,
@@ -102,7 +102,8 @@ pub fn create_folding_ranges(syntax: &SyntaxNode, mapper: &Mapper) -> Vec<Foldin
                     SyntaxElement::Node(n) => {
                         for d in n.descendants_with_tokens() {
                             match d.kind() {
-                                ARRAY => {
+                                // Inline tables can span multiple lines since TOML 1.1.
+                                ARRAY | INLINE_TABLE => {
                                     if d.as_node()
                                         .unwrap()
                                         .descendants_with_tokens()
@@ -220,4 +221,26 @@ pub fn create_folding_ranges(syntax: &SyntaxNode, mapper: &Mapper) -> Vec<Foldin
     }
 
     folding_ranges
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use taplo::parser::parse;
+
+    #[test]
+    fn multi_line_inline_table() {
+        let src = r#"contact = {
+    name = "Donald Duck", # TOML 1.1
+    email = "donald@duckburg.com",
+}
+"#;
+        let syntax = parse(src).into_syntax();
+        let ranges = create_folding_ranges(&syntax, &Mapper::new_utf16(src, false));
+
+        assert!(
+            ranges.iter().any(|r| r.start_line == 0 && r.end_line == 3),
+            "{ranges:#?}"
+        );
+    }
 }

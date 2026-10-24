@@ -861,6 +861,16 @@ fn format_inline_table(
     options: &Options,
     context: &Context,
 ) -> impl FormattedItem {
+    // TOML 1.1 allows newlines and comments in inline tables,
+    // these are not laid out yet, so we keep them as they are.
+    if node
+        .children_with_tokens()
+        .any(|c| matches!(c.kind(), NEWLINE | COMMENT))
+    {
+        let formatted = node.to_string();
+        return (node.into(), formatted, None);
+    }
+
     let mut formatted = String::new();
     let mut comment = None;
 
