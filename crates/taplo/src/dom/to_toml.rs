@@ -78,13 +78,7 @@ impl Node {
 
                     // We make two runs to put tables and array of tables last.
                     // No tables:
-                    for (key, node) in entries.iter().filter(|(_, n)| {
-                        !n.is_table()
-                            && !n
-                                .as_array()
-                                .map(|n| n.inner.kind == ArrayKind::Tables)
-                                .unwrap_or(false)
-                    }) {
+                    for (key, node) in entries.iter().filter(|(_, n)| !needs_header(n)) {
                         node.to_toml_impl(
                             f,
                             key.clone().into(),
@@ -96,12 +90,7 @@ impl Node {
                     }
 
                     // Tables only:
-                    for (key, node) in entries.iter().filter(|(_, n)| {
-                        n.is_table()
-                            || n.as_array()
-                                .map(|n| n.inner.kind == ArrayKind::Tables)
-                                .unwrap_or(false)
-                    }) {
+                    for (key, node) in entries.iter().filter(|(_, n)| needs_header(n)) {
                         node.to_toml_impl(
                             f,
                             parent_keys.join(key.clone()),
@@ -184,8 +173,55 @@ impl Node {
     }
 }
 
+/// Whether the node is written with a table or array of tables header,
+/// inline tables and arrays are written as values.
+fn needs_header(node: &Node) -> bool {
+    match node {
+        Node::Table(t) => t.inner.kind != TableKind::Inline,
+        Node::Array(arr) => arr.inner.kind == ArrayKind::Tables,
+        _ => false,
+    }
+}
+
 impl core::fmt::Display for Node {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.to_toml_impl(f, Keys::empty(), false, false, false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::parser::parse;
+
+    #[test]
+    fn inline_tables_are_written_as_values() {
+        let src = r#"
+a = { b = 1 }
+c = { d = {
+  e = 2,
+} }
+
+[t]
+f = { g = 3 }
+h = 4
+
+[t.u]
+i = 5
+"#;
+
+        let toml = parse(src).into_dom().to_toml(false, false);
+
+        let p = parse(&toml);
+        assert!(p.errors.is_empty(), "{toml}\n{:#?}", p.errors);
+
+        let dom = p.into_dom();
+        assert!(dom.validate().is_ok(), "{toml}");
+        assert_eq!(
+            serde_json::to_value(&dom).unwrap(),
+            serde_json::to_value(parse(src).into_dom()).unwrap(),
+            "{toml}"
+        );
+        assert!(dom.path(&"t.f.g".parse().unwrap()).is_some(), "{toml}");
+        assert!(dom.path(&"t.t".parse().unwrap()).is_none(), "{toml}");
     }
 }

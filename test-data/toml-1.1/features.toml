@@ -1,0 +1,34 @@
+# A document using the features added in TOML 1.1.
+esc = "\e[1mbold\e[0m"
+hex = "S\xf8rmirb\xe6ren \x41"
+multi-line-hex = """
+\x48\x69\e"""
+
+time = 13:37
+local-date-time = 1979-05-27T07:32
+offset-date-time = 1979-05-27 07:32Z
+negative-offset = 1979-05-27 07:32-07:00
+
+trailing-comma = { a = 1, }
+
+server = {
+  # comment before the first entry
+  host = "localhost", # comment after an entry
+  ports = [
+    8080,
+    8443,
+  ],
+
+  tls = {
+    cert = "cert.pem",
+    key = "key.pem",
+  },
+  hours = { open = 08:00, close = 17:30 }
+}
+
+[table]
+inline = {
+  a = 1,
+  b = { c = 2 }, # nested
+}
+after = true

@@ -249,6 +249,12 @@ impl Query {
             None => return true,
         };
 
+        // Inline tables can span multiple lines (TOML 1.1),
+        // an empty line in one is not a new entry of the parent table.
+        if self.in_inline_table() {
+            return false;
+        }
+
         match &self.after {
             Some(after) => {
                 if matches!(after.syntax.kind(), WHITESPACE | NEWLINE) {
