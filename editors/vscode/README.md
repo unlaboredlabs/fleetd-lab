@@ -5,7 +5,7 @@ A TOML language support extension backed by [Taplo](https://taplo.tamasfe.dev).
 It is currently a **preview extension**, it might contain bugs, or might even crash. If you encounter any issues, please report them [on github](https://github.com/tamasfe/taplo/issues).
 
 - [Features](#features)
-  - [TOML version 1.0.0 support](#toml-version-100-support)
+  - [TOML version 1.1.0 support](#toml-version-110-support)
   - [Syntax highlighting](#syntax-highlighting)
     - [Additional Syntax Colors](#additional-syntax-colors)
   - [Semantic highlighting](#semantic-highlighting)
@@ -22,7 +22,7 @@ It is currently a **preview extension**, it might contain bugs, or might even cr
 
 # Features
 
-## TOML version [1.0.0](https://toml.io/en/v1.0.0) support
+## TOML version [1.1.0](https://toml.io/en/v1.1.0) support
 
 This extension will try to support all the TOML versions in the future.
 

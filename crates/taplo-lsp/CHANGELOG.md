@@ -1,5 +1,15 @@
 # Change Log
 
+## Unreleased
+
+### Features
+
+- Support TOML 1.1.0, including in configuration files ([#332](https://github.com/tamasfe/taplo/issues/332))
+
+### Fixes
+
+- Complete the keys of the inline table on empty lines of multi-line inline tables
+
 ## 0.8.0
 
 ### Features

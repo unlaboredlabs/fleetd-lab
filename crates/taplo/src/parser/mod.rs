@@ -807,7 +807,7 @@ impl<'p> Parser<'p> {
     }
 
     fn parse_inline_table(&mut self) -> ParserResult<()> {
-        // https://github.com/toml-lang/toml/blob/78fcf9dd7eab7acfbaf147c684b649477e7bdd9c/toml.abnf#L238
+        // https://github.com/toml-lang/toml/blob/1.1.0/toml.abnf#L227
         self.must_token_or(BRACE_START, r#"expected "{""#)?;
 
         let mut expect_comma_or_end = false;

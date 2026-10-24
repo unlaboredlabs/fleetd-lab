@@ -71,6 +71,28 @@ impl Debug for Config {
 }
 
 impl Config {
+    /// Parse a configuration file.
+    ///
+    /// Taplo's own parser is used, so the configuration file
+    /// can use any TOML syntax that Taplo supports.
+    pub fn from_toml(source: &str) -> Result<Self, anyhow::Error> {
+        let parse = taplo::parser::parse(source);
+
+        if let Some(error) = parse.errors.first() {
+            return Err(anyhow::anyhow!("invalid TOML: {error}"));
+        }
+
+        let dom = parse.into_dom();
+
+        if let Err(mut errors) = dom.validate() {
+            if let Some(error) = errors.next() {
+                return Err(anyhow::anyhow!("invalid TOML: {error}"));
+            }
+        }
+
+        Ok(serde_json::from_value(serde_json::to_value(&dom)?)?)
+    }
+
     /// Prepare the configuration for further use.
     pub fn prepare(&mut self, e: &impl Environment, base: &Path) -> Result<(), anyhow::Error> {
         self.make_absolute(e, base);
@@ -380,4 +402,52 @@ pub struct Plugin {
     /// Optional settings for the plugin.
     #[serde(default)]
     pub settings: Option<Value>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_from_toml_1_1() {
+        let config = Config::from_toml(
+            r#"
+include = ["**/*.toml"]
+formatting = {
+  align_entries = true, # TOML 1.1 syntax
+  column_width = 100,
+}
+
+[[rule]]
+include = ["Cargo.toml"]
+keys = ["dependencies"]
+formatting = { reorder_keys = true, }
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(config.include, Some(vec!["**/*.toml".to_string()]));
+
+        let formatting = config.global_options.formatting.unwrap();
+        assert_eq!(formatting.align_entries, Some(true));
+        assert_eq!(formatting.column_width, Some(100));
+
+        assert_eq!(config.rule.len(), 1);
+        assert_eq!(
+            config.rule[0]
+                .options
+                .formatting
+                .as_ref()
+                .unwrap()
+                .reorder_keys,
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn invalid_config() {
+        assert!(Config::from_toml("include = [").is_err());
+        assert!(Config::from_toml("include = 1\ninclude = 2").is_err());
+        assert!(Config::from_toml("unknown_field = true").is_err());
+    }
 }

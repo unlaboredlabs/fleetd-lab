@@ -2344,7 +2344,6 @@ dependencies = [
  "taplo",
  "taplo-common",
  "time",
- "toml",
  "tracing",
 ]
 

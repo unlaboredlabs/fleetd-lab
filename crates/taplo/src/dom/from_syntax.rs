@@ -522,7 +522,9 @@ fn root_from_syntax(syntax: SyntaxElement) -> Table {
                                             t.inner.kind == TableKind::Pseudo && t.inner.header;
 
                                         if !implicit_header_table
-                                            || t.inner.defined_by_header.swap(true, Ordering::Relaxed)
+                                            || t.inner
+                                                .defined_by_header
+                                                .swap(true, Ordering::Relaxed)
                                         {
                                             t.inner.errors.update(|errors| {
                                                 errors.push(Error::ConflictingKeys {

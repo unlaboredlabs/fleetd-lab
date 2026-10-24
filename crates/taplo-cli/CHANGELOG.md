@@ -1,5 +1,11 @@
 # Change Log
 
+## Unreleased
+
+### Features
+
+- Support TOML 1.1.0, including in configuration files ([#332](https://github.com/tamasfe/taplo/issues/332))
+
 ## 0.10.0
 
 ### Fixes

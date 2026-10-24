@@ -286,7 +286,10 @@ impl core::fmt::Display for Key {
         }
 
         // Literal strings cannot contain apostrophes or control characters.
-        if value.chars().all(|c| c != '\'' && (c == '\t' || !c.is_control())) {
+        if value
+            .chars()
+            .all(|c| c != '\'' && (c == '\t' || !c.is_control()))
+        {
             f.write_char('\'')?;
             value.fmt(f)?;
             f.write_char('\'')

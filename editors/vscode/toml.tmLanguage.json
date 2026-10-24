@@ -158,11 +158,11 @@
           "end": "\"\"\"",
           "patterns": [
             {
-              "match": "\\\\([btnfr\"\\\\\\n/ ]|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8})",
+              "match": "\\\\([btnfre\"\\\\\\n/ ]|x[0-9A-Fa-f]{2}|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8})",
               "name": "constant.character.escape.toml"
             },
             {
-              "match": "\\\\[^btnfr/\"\\\\\\n]",
+              "match": "\\\\[^btnfre/\"\\\\\\n]",
               "name": "invalid.illegal.escape.toml"
             }
           ]
@@ -173,11 +173,11 @@
           "end": "\"",
           "patterns": [
             {
-              "match": "\\\\([btnfr\"\\\\\\n/ ]|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8})",
+              "match": "\\\\([btnfre\"\\\\\\n/ ]|x[0-9A-Fa-f]{2}|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8})",
               "name": "constant.character.escape.toml"
             },
             {
-              "match": "\\\\[^btnfr/\"\\\\\\n]",
+              "match": "\\\\[^btnfre/\"\\\\\\n]",
               "name": "invalid.illegal.escape.toml"
             }
           ]
@@ -198,7 +198,7 @@
               "name": "constant.other.time.datetime.offset.toml"
             }
           },
-          "match": "(?<!\\w)(\\d{4}\\-\\d{2}\\-\\d{2}[T| ]\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[\\+\\-]\\d{2}:\\d{2}))(?!\\w)"
+          "match": "(?<!\\w)(\\d{4}\\-\\d{2}\\-\\d{2}[T| ]\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d+)?)?(?:Z|[\\+\\-]\\d{2}:\\d{2}))(?!\\w)"
         },
         {
           "captures": {
@@ -206,7 +206,7 @@
               "name": "constant.other.time.datetime.local.toml"
             }
           },
-          "match": "(\\d{4}\\-\\d{2}\\-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?)"
+          "match": "(\\d{4}\\-\\d{2}\\-\\d{2}T\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d+)?)?)"
         },
         {
           "name": "constant.other.time.date.toml",
@@ -214,7 +214,7 @@
         },
         {
           "name": "constant.other.time.time.toml",
-          "match": "\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?"
+          "match": "\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d+)?)?"
         },
         {
           "match": "(?<!\\w)(true|false)(?!\\w)",
