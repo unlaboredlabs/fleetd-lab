@@ -158,3 +158,29 @@ impl<'b> SemanticTokensBuilder<'b> {
         self.tokens
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use taplo::parser::parse;
+
+    #[test]
+    fn multi_line_inline_table_key() {
+        let src = r#"contact = { # TOML 1.1
+    name = "Donald Duck",
+    nested = {
+        a = 1,
+    },
+}
+"#;
+        let syntax = parse(src).into_syntax();
+        let tokens = create_tokens(&syntax, &Mapper::new_utf16(src, false));
+
+        // `contact` and `nested`.
+        let table_keys = tokens
+            .iter()
+            .filter(|t| t.token_type == TokenType::TomlTableKey as u32)
+            .count();
+        assert_eq!(table_keys, 2, "{tokens:#?}");
+    }
+}

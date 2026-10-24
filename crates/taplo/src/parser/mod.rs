@@ -2,7 +2,7 @@
 
 use crate::{
     dom::{self, FromSyntax},
-    syntax::{SyntaxKind, SyntaxKind::*, SyntaxNode},
+    syntax::{lex_date_time, SyntaxKind, SyntaxKind::*, SyntaxNode},
     util::{allowed_chars, check_escape},
 };
 use logos::{Lexer, Logos};
@@ -263,7 +263,11 @@ impl<'p> Parser<'p> {
 
     fn step(&mut self) {
         self.current_token = None;
-        while let Some(token) = self.lexer.next() {
+        while let Some(mut token) = self.lexer.next() {
+            if self.lexer.slice().starts_with(|c: char| c.is_ascii_digit()) {
+                token = self.date_time_token(token);
+            }
+
             match token {
                 COMMENT => {
                     match allowed_chars::comment(self.lexer.slice()) {
@@ -307,6 +311,21 @@ impl<'p> Parser<'p> {
                     break;
                 }
             }
+        }
+    }
+
+    /// Logos does not reliably lex dates and times (e.g. a local date-time
+    /// can come out as an `INTEGER`, and a space-delimited date-time as a
+    /// `DATE` followed by whitespace), so we scan them by hand and extend
+    /// the current token if needed.
+    fn date_time_token(&mut self, token: SyntaxKind) -> SyntaxKind {
+        let span = self.lexer.span();
+        match lex_date_time(&self.lexer.source()[span.start..]) {
+            Some((kind, len)) if len >= span.len() => {
+                self.lexer.bump(len - span.len());
+                kind
+            }
+            _ => token,
         }
     }
 
@@ -567,9 +586,9 @@ impl<'p> Parser<'p> {
                 }
             }
             FLOAT => {
-                if self.lexer.slice().starts_with('0') {
-                    self.error("zero-padded numbers are not allowed")
-                } else if self.lexer.slice().starts_with('+') {
+                // Bare keys can have leading zeros (e.g. `01.23` is the
+                // dotted key `"01"."23"`), but not a "+".
+                if self.lexer.slice().contains('+') {
                     Err(())
                 } else {
                     for (i, s) in self.lexer.slice().split('.').enumerate() {

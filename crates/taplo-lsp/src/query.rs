@@ -249,6 +249,15 @@ impl Query {
             None => return true,
         };
 
+        // Since TOML 1.1 inline tables can span multiple lines,
+        // an empty line inside one is not a new entry of the parent table.
+        if before_syntax
+            .parent_ancestors()
+            .any(|a| a.kind() == INLINE_TABLE)
+        {
+            return false;
+        }
+
         match &self.after {
             Some(after) => {
                 if matches!(after.syntax.kind(), WHITESPACE | NEWLINE) {
@@ -464,4 +473,52 @@ fn full_range(keys: &Keys, node: &Node) -> TextRange {
     };
 
     join_ranges(last_key.chain(node.text_ranges(true)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use taplo::parser::parse;
+
+    fn query_at_cursor(src: &str) -> (Node, Query) {
+        let offset = src.find('|').unwrap();
+        let src = src.replacen('|', "", 1);
+        let dom = parse(&src).into_dom();
+        let query = Query::at(&dom, TextSize::from(offset as u32));
+        (dom, query)
+    }
+
+    #[test]
+    fn empty_line_in_multi_line_inline_table() {
+        let (_, query) = query_at_cursor(
+            r#"
+[server]
+contact = { # TOML 1.1
+    name = "Donald Duck",
+    |
+}
+"#,
+        );
+
+        assert!(!query.empty_line());
+        assert!(query.in_entry_value());
+        assert!(query.in_inline_table());
+        assert_eq!(query.dom_node().unwrap().0.dotted(), "server.contact");
+    }
+
+    #[test]
+    fn empty_line_after_multi_line_inline_table() {
+        let (_, query) = query_at_cursor(
+            r#"
+[server]
+contact = {
+    name = "Donald Duck",
+}
+|
+"#,
+        );
+
+        assert!(query.empty_line());
+        assert!(!query.in_inline_table());
+    }
 }

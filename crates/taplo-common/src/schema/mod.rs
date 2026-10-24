@@ -747,3 +747,64 @@ mod formats {
         semver::VersionReq::parse(value).is_ok()
     }
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+    use crate::environment::native::NativeEnvironment;
+
+    #[test]
+    fn validate_toml_1_1_document() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "esc": { "type": "string", "const": "\u{1b}[1mA" },
+                "time": { "type": "string", "const": "07:32:00" },
+                "contact": {
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string" },
+                        "email": { "type": "string" }
+                    },
+                    "required": ["name", "email"],
+                    "additionalProperties": false
+                }
+            },
+            "required": ["esc", "time", "contact"],
+            "additionalProperties": false
+        });
+
+        let src = r#"
+esc = "\e[1m\x41"
+time = 07:32
+contact = { # comment
+    name = "Donald Duck",
+    email = "donald@duckburg.com",
+}
+"#;
+
+        let parse = taplo::parser::parse(src);
+        assert!(parse.errors.is_empty(), "{:#?}", parse.errors);
+        let root = parse.into_dom();
+        assert!(root.validate().is_ok());
+
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let schemas = Schemas::new(NativeEnvironment::new(), reqwest::Client::new());
+                let url = Url::parse("taplo://test-schema.json").unwrap();
+                schemas.add_schema(&url, Arc::new(schema)).await;
+
+                let errors = schemas.validate_root(&url, &root).await.unwrap();
+                assert!(errors.is_empty(), "{errors:#?}");
+
+                let invalid = taplo::parser::parse("esc = 1\ncontact = {\n  name = 1,\n}\n");
+                let errors = schemas
+                    .validate_root(&url, &invalid.into_dom())
+                    .await
+                    .unwrap();
+                assert!(!errors.is_empty());
+            });
+    }
+}

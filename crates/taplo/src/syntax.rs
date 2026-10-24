@@ -64,16 +64,16 @@ pub enum SyntaxKind {
     #[regex(r"true|false")]
     BOOL,
 
-    #[regex(r#"(?:[0-9][0-9][0-9][0-9]-(?:(?:0[1-9]|1[0-2])-(?:0[1-9]|1\d|2[0-8])|(?:0[13-9]|1[0-2])-(?:29|30)|(?:0[13578]|1[02])-31)|(?:(?:[0-9][0-9](?:0[48]|[2468][048]|[13579][26]))|(?:[2468][048]|[13579][26])00)-02-29)(?:T|t| )(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:(?:\.|,)\d+)?(?:[Zz]|[+-][01]\d:[0-5]\d)"#)]
+    #[regex(r#"(?:[0-9][0-9][0-9][0-9]-(?:(?:0[1-9]|1[0-2])-(?:0[1-9]|1[0-9]|2[0-8])|(?:0[13-9]|1[0-2])-(?:29|30)|(?:0[13578]|1[02])-31)|(?:(?:[0-9][0-9](?:0[48]|[2468][048]|[13579][26]))|(?:[2468][048]|[13579][26])00)-02-29)(?:T|t| )(?:[01][0-9]|2[0-3]):[0-5][0-9](?::[0-5][0-9](?:\.[0-9]+)?)?(?:[Zz]|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])"#)]
     DATE_TIME_OFFSET,
 
-    #[regex(r#"(?:[0-9][0-9][0-9][0-9]-(?:(?:0[1-9]|1[0-2])-(?:0[1-9]|1\d|2[0-8])|(?:0[13-9]|1[0-2])-(?:29|30)|(?:0[13578]|1[02])-31)|(?:(?:[0-9][0-9](?:0[48]|[2468][048]|[13579][26]))|(?:[2468][048]|[13579][26])00)-02-29)(?:T|t| )(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:(?:\.|,)\d+)?"#)]
+    #[regex(r#"(?:[0-9][0-9][0-9][0-9]-(?:(?:0[1-9]|1[0-2])-(?:0[1-9]|1[0-9]|2[0-8])|(?:0[13-9]|1[0-2])-(?:29|30)|(?:0[13578]|1[02])-31)|(?:(?:[0-9][0-9](?:0[48]|[2468][048]|[13579][26]))|(?:[2468][048]|[13579][26])00)-02-29)(?:T|t| )(?:[01][0-9]|2[0-3]):[0-5][0-9](?::[0-5][0-9](?:\.[0-9]+)?)?"#)]
     DATE_TIME_LOCAL,
 
-    #[regex(r#"(?:[0-9][0-9][0-9][0-9]-(?:(?:0[1-9]|1[0-2])-(?:0[1-9]|1\d|2[0-8])|(?:0[13-9]|1[0-2])-(?:29|30)|(?:0[13578]|1[02])-31)|(?:(?:[0-9][0-9](?:0[48]|[2468][048]|[13579][26]))|(?:[2468][048]|[13579][26])00)-02-29)"#)]
+    #[regex(r#"(?:[0-9][0-9][0-9][0-9]-(?:(?:0[1-9]|1[0-2])-(?:0[1-9]|1[0-9]|2[0-8])|(?:0[13-9]|1[0-2])-(?:29|30)|(?:0[13578]|1[02])-31)|(?:(?:[0-9][0-9](?:0[48]|[2468][048]|[13579][26]))|(?:[2468][048]|[13579][26])00)-02-29)"#)]
     DATE,
 
-    #[regex(r#"(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:(?:\.|,)\d+)?"#)]
+    #[regex(r#"(?:[01][0-9]|2[0-3]):[0-5][0-9](?::[0-5][0-9](?:\.[0-9]+)?)?"#)]
     TIME,
 
     #[token("[")]
@@ -273,5 +273,107 @@ fn lex_multi_line_string_literal(lex: &mut Lexer<SyntaxKind>) -> bool {
         true
     } else {
         false
+    }
+}
+
+/// Scans a date, time or date-time at the start of `s`.
+///
+/// The regular expressions above are not always picked up by Logos
+/// (e.g. a local date-time can come out as an `INTEGER`), so the parser
+/// uses this to determine the actual kind and length of date-time tokens.
+///
+/// Returns `None` if `s` does not start with a valid date or time.
+pub(crate) fn lex_date_time(s: &str) -> Option<(SyntaxKind, usize)> {
+    let b = s.as_bytes();
+
+    if let Some(date_len) = scan_date(b) {
+        let time_start = date_len + 1;
+
+        if matches!(b.get(date_len), Some(b'T' | b't' | b' ')) {
+            if let Some(time_len) = scan_time(&b[time_start..]) {
+                let time_end = time_start + time_len;
+                return match scan_offset(&b[time_end..]) {
+                    Some(offset_len) => Some((SyntaxKind::DATE_TIME_OFFSET, time_end + offset_len)),
+                    None => Some((SyntaxKind::DATE_TIME_LOCAL, time_end)),
+                };
+            }
+        }
+
+        return Some((SyntaxKind::DATE, date_len));
+    }
+
+    scan_time(b).map(|len| (SyntaxKind::TIME, len))
+}
+
+fn two_digits(b: &[u8], at: usize) -> Option<u32> {
+    match (b.get(at), b.get(at + 1)) {
+        (Some(a @ b'0'..=b'9'), Some(b @ b'0'..=b'9')) => {
+            Some(u32::from(a - b'0') * 10 + u32::from(b - b'0'))
+        }
+        _ => None,
+    }
+}
+
+/// `YYYY-MM-DD`, with a valid month and day.
+fn scan_date(b: &[u8]) -> Option<usize> {
+    let year = two_digits(b, 0)? * 100 + two_digits(b, 2)?;
+    if b.get(4) != Some(&b'-') || b.get(7) != Some(&b'-') {
+        return None;
+    }
+    let month = two_digits(b, 5)?;
+    let day = two_digits(b, 8)?;
+
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let days_in_month = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => return None,
+    };
+
+    if day == 0 || day > days_in_month {
+        return None;
+    }
+
+    Some(10)
+}
+
+/// `HH:MM[:SS[.fraction]]`, seconds are optional since TOML 1.1.
+fn scan_time(b: &[u8]) -> Option<usize> {
+    if two_digits(b, 0)? > 23 || b.get(2) != Some(&b':') || two_digits(b, 3)? > 59 {
+        return None;
+    }
+
+    if b.get(5) != Some(&b':') {
+        return Some(5);
+    }
+
+    if two_digits(b, 6)? > 59 {
+        return None;
+    }
+
+    let mut len = 8;
+    if b.get(len) == Some(&b'.') && b.get(len + 1).is_some_and(u8::is_ascii_digit) {
+        len += 1;
+        while b.get(len).is_some_and(u8::is_ascii_digit) {
+            len += 1;
+        }
+    }
+
+    Some(len)
+}
+
+/// `Z` or `+HH:MM` / `-HH:MM`.
+fn scan_offset(b: &[u8]) -> Option<usize> {
+    match b.first()? {
+        b'Z' | b'z' => Some(1),
+        b'+' | b'-' => {
+            if two_digits(b, 1)? > 23 || b.get(3) != Some(&b':') || two_digits(b, 4)? > 59 {
+                return None;
+            }
+            Some(6)
+        }
+        _ => None,
     }
 }

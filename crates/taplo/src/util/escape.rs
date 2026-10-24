@@ -3,18 +3,23 @@ use logos::{Lexer, Logos};
 /// Escaping based on:
 ///
 /// \b         - backspace       (U+0008)
+/// \e         - escape          (U+001B)
 /// \t         - tab             (U+0009)
 /// \n         - linefeed        (U+000A)
 /// \f         - form feed       (U+000C)
 /// \r         - carriage return (U+000D)
 /// \"         - quote           (U+0022)
 /// \\         - backslash       (U+005C)
+/// \xHH       - unicode         (U+00HH)
 /// \uXXXX     - unicode         (U+XXXX)
 /// \UXXXXXXXX - unicode         (U+XXXXXXXX)
 #[derive(Logos, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Escape {
     #[token(r#"\b"#)]
     Backspace,
+
+    #[token(r#"\e"#)]
+    Esc,
 
     #[token(r#"\t"#)]
     Tab,
@@ -36,6 +41,9 @@ pub enum Escape {
 
     #[token(r#"\\"#)]
     Backslash,
+
+    #[regex(r#"\\x[0-9A-Fa-f][0-9A-Fa-f]"#)]
+    Hex,
 
     // Same thing repeated 4 times, but the {n} repetition syntax is not supported by Logos
     #[regex(r#"\\u[0-9A-Fa-f_][0-9A-Fa-f_][0-9A-Fa-f_][0-9A-Fa-f_]"#)]
@@ -66,6 +74,10 @@ pub fn escape(s: &str) -> String {
             '\u{000D}' => escaped.push_str(r#"\r"#),
             '\u{0022}' => escaped.push_str(r#"\""#),
             '\u{005C}' => escaped.push_str(r#"\\"#),
+            // Other control characters are not allowed unescaped.
+            '\u{0000}'..='\u{001F}' | '\u{007F}' => {
+                escaped.push_str(&format!(r#"\u{:04X}"#, c as u32));
+            }
             _ => {
                 escaped.push(c);
             }
@@ -85,6 +97,7 @@ pub fn unescape(s: &str) -> Result<String, usize> {
     while let Some(t) = lexer.next() {
         match t {
             Backspace => new_s += "\u{0008}",
+            Esc => new_s += "\u{001B}",
             Tab => new_s += "\u{0009}",
             LineFeed => new_s += "\u{000A}",
             FormFeed => new_s += "\u{000C}",
@@ -92,7 +105,7 @@ pub fn unescape(s: &str) -> Result<String, usize> {
             Quote => new_s += "\u{0022}",
             Backslash => new_s += "\u{005C}",
             Newline => {}
-            Unicode => {
+            Hex | Unicode => {
                 new_s += &std::char::from_u32(
                     u32::from_str_radix(&lexer.slice()[2..], 16).map_err(|_| lexer.span().start)?,
                 )
@@ -125,6 +138,7 @@ pub fn check_escape(s: &str) -> Result<(), Vec<usize>> {
     while let Some(t) = lexer.next() {
         match t {
             Backspace => {}
+            Esc => {}
             Tab => {}
             LineFeed => {}
             FormFeed => {}
@@ -132,7 +146,7 @@ pub fn check_escape(s: &str) -> Result<(), Vec<usize>> {
             Quote => {}
             Backslash => {}
             Newline => {}
-            Unicode => {
+            Hex | Unicode => {
                 let char_val = match u32::from_str_radix(&lexer.slice()[2..], 16) {
                     Ok(v) => v,
                     Err(_) => {

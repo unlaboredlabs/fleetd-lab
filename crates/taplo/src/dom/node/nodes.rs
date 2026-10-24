@@ -640,20 +640,7 @@ impl DateTime {
     pub fn value(&self) -> DateTimeValue {
         *self.inner.value.get_or_init(|| {
             if let Some(token) = self.syntax().and_then(|s| s.as_token()) {
-                let mut text = token.text().to_string();
-
-                // SAFETY: we're replacing single-byte characters.
-                unsafe {
-                    for b in text.as_bytes_mut() {
-                        if *b == b' ' || *b == b't' {
-                            *b = b'T';
-                        } else if *b == b'z' {
-                            *b = b'Z';
-                        } else if *b == b',' {
-                            *b = b'.';
-                        }
-                    }
-                }
+                let text = normalize_date_time(token.text());
 
                 match token.kind() {
                     SyntaxKind::DATE_TIME_OFFSET => {
@@ -712,6 +699,46 @@ impl DateTime {
             Err(self.errors())
         }
     }
+}
+
+/// Brings a TOML date-time into a form that the `time` crate can parse:
+/// `T` as the delimiter, uppercase `Z`, seconds always present
+/// (they are optional since TOML 1.1) and at most nanosecond precision.
+fn normalize_date_time(text: &str) -> String {
+    let mut normalized = String::with_capacity(text.len() + 3);
+
+    let time = match text.as_bytes().get(4) {
+        Some(b'-') if text.len() > 10 => {
+            normalized.push_str(&text[..10]);
+            normalized.push('T');
+            &text[11..]
+        }
+        Some(b'-') => return text.into(),
+        _ => text,
+    };
+
+    let (time, offset) = match time.find(|c| matches!(c, 'Z' | 'z' | '+' | '-')) {
+        Some(idx) => time.split_at(idx),
+        None => (time, ""),
+    };
+
+    let (time, fraction) = match time.split_once('.') {
+        Some((time, fraction)) => (time, &fraction[..fraction.len().min(9)]),
+        None => (time, ""),
+    };
+
+    normalized.push_str(time);
+    if time.len() == 5 {
+        normalized.push_str(":00");
+    }
+
+    if !fraction.is_empty() {
+        normalized.push('.');
+        normalized.push_str(fraction);
+    }
+
+    normalized.push_str(&offset.to_ascii_uppercase());
+    normalized
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Ord, PartialOrd)]
