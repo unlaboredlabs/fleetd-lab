@@ -391,9 +391,7 @@ impl Node {
 
                 let items = v.inner.items.read();
                 for item in &**items.as_ref() {
-                    if let Err(errs) = item.validate_node() {
-                        errors.extend(errs.read().as_ref().iter().cloned())
-                    }
+                    item.validate_all_impl(errors);
                 }
             }
             Node::Bool(v) => {
