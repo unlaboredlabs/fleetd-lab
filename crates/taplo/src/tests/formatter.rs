@@ -1204,8 +1204,7 @@ sort_me_not = ["3", "2", "1"]
     assert_format!(expected, &formatted);
 }
 
-/// Multi-line inline tables (TOML 1.1) are not laid out yet,
-/// but must not panic or lose comments.
+/// Multi-line inline tables (TOML 1.1) must not panic or lose comments.
 #[test]
 fn multi_line_inline_table_kept() {
     let src = r#"a   =   { x = 1, y = 2 }
@@ -1218,11 +1217,12 @@ tbl = {#comment
 "#;
 
     let expected = r#"a = { x = 1, y = 2 }
-tbl = {#comment
-	k = 1,#comment
-	# comment
-	nested = { a = 1,
-	},
+tbl = { #comment
+  k = 1, #comment
+  # comment
+  nested = {
+    a = 1,
+  },
 } #comment
 "#;
 

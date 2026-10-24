@@ -5,6 +5,8 @@ mod generated {
 }
 
 mod formatter;
+mod formatter_toml_1_1;
+mod formatter_toml_test;
 mod toml_1_1;
 
 #[test]
