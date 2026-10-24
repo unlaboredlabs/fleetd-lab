@@ -64,16 +64,18 @@ pub enum SyntaxKind {
     #[regex(r"true|false")]
     BOOL,
 
-    #[regex(r#"(?:[0-9][0-9][0-9][0-9]-(?:(?:0[1-9]|1[0-2])-(?:0[1-9]|1\d|2[0-8])|(?:0[13-9]|1[0-2])-(?:29|30)|(?:0[13578]|1[02])-31)|(?:(?:[0-9][0-9](?:0[48]|[2468][048]|[13579][26]))|(?:[2468][048]|[13579][26])00)-02-29)(?:T|t| )(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:(?:\.|,)\d+)?(?:[Zz]|[+-][01]\d:[0-5]\d)"#)]
+    // The date and time tokens only describe the shape of the values,
+    // the ranges of the individual fields are validated by the parser.
+    #[regex(r#"[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][Tt ][0-9][0-9]:[0-9][0-9](?::[0-9][0-9](?:\.[0-9]+)?)?(?:[Zz]|[+-][0-9][0-9]:[0-9][0-9])"#)]
     DATE_TIME_OFFSET,
 
-    #[regex(r#"(?:[0-9][0-9][0-9][0-9]-(?:(?:0[1-9]|1[0-2])-(?:0[1-9]|1\d|2[0-8])|(?:0[13-9]|1[0-2])-(?:29|30)|(?:0[13578]|1[02])-31)|(?:(?:[0-9][0-9](?:0[48]|[2468][048]|[13579][26]))|(?:[2468][048]|[13579][26])00)-02-29)(?:T|t| )(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:(?:\.|,)\d+)?"#)]
+    #[regex(r#"[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][Tt ][0-9][0-9]:[0-9][0-9](?::[0-9][0-9](?:\.[0-9]+)?)?"#)]
     DATE_TIME_LOCAL,
 
-    #[regex(r#"(?:[0-9][0-9][0-9][0-9]-(?:(?:0[1-9]|1[0-2])-(?:0[1-9]|1\d|2[0-8])|(?:0[13-9]|1[0-2])-(?:29|30)|(?:0[13578]|1[02])-31)|(?:(?:[0-9][0-9](?:0[48]|[2468][048]|[13579][26]))|(?:[2468][048]|[13579][26])00)-02-29)"#)]
+    #[regex(r#"[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]"#)]
     DATE,
 
-    #[regex(r#"(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:(?:\.|,)\d+)?"#)]
+    #[regex(r#"[0-9][0-9]:[0-9][0-9](?::[0-9][0-9](?:\.[0-9]+)?)?"#)]
     TIME,
 
     #[token("[")]
@@ -151,65 +153,47 @@ fn lex_string(lex: &mut Lexer<SyntaxKind>) -> bool {
 }
 
 fn lex_multi_line_string(lex: &mut Lexer<SyntaxKind>) -> bool {
-    let remainder: &str = lex.remainder();
+    lex_multi_line(lex, b'"', true)
+}
 
-    let mut total_len = 0;
-    let mut quote_count = 0;
+/// Lexes the rest of a multi-line string after the opening delimiter.
+///
+/// Up to two quotes are allowed right before the closing delimiter,
+/// they are part of the string.
+fn lex_multi_line(lex: &mut Lexer<SyntaxKind>, quote: u8, escapes: bool) -> bool {
+    // We only look for ASCII characters, so it is fine to work with bytes,
+    // the end of the token always falls on a character boundary.
+    let bytes = lex.remainder().as_bytes();
 
-    let mut escaped = false;
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
 
-    // As the string can contain ",
-    // we can end up with more than 3 "-s at
-    // the end, in that case we need to include all
-    // in the string.
-    let mut quotes_found = false;
-
-    for c in remainder.chars() {
-        if quotes_found {
-            if c != '"' {
-                if quote_count >= 6 {
-                    return false;
-                }
-
-                lex.bump(total_len);
-                return true;
-            } else {
-                quote_count += 1;
-                total_len += c.len_utf8();
-                continue;
-            }
-        }
-        total_len += c.len_utf8();
-
-        if c == '\\' {
-            escaped = true;
+        if escapes && b == b'\\' {
+            i += 2;
             continue;
         }
 
-        if c == '"' && !escaped {
-            quote_count += 1;
-        } else {
-            quote_count = 0;
+        if b == quote {
+            let quote_count = bytes[i..].iter().take_while(|b| **b == quote).count();
+
+            if quote_count >= 3 {
+                if quote_count > 5 {
+                    return false;
+                }
+
+                lex.bump(i + quote_count);
+                return true;
+            }
+
+            i += quote_count;
+            continue;
         }
 
-        if quote_count == 3 {
-            quotes_found = true;
-        }
-
-        escaped = false;
+        i += 1;
     }
 
-    // End of input
-    if quotes_found {
-        if quote_count >= 6 {
-            return false;
-        }
-
-        lex.bump(total_len);
-        true
-    } else {
-        false
-    }
+    false
 }
 
 fn lex_string_literal(lex: &mut Lexer<SyntaxKind>) -> bool {
@@ -228,50 +212,5 @@ fn lex_string_literal(lex: &mut Lexer<SyntaxKind>) -> bool {
 }
 
 fn lex_multi_line_string_literal(lex: &mut Lexer<SyntaxKind>) -> bool {
-    let remainder: &str = lex.remainder();
-
-    let mut total_len = 0;
-    let mut quote_count = 0;
-
-    // As the string can contain ',
-    // we can end up with more than 3 '-s at
-    // the end, in that case we need to include all
-    // in the string.
-    let mut quotes_found = false;
-
-    for c in remainder.chars() {
-        if quotes_found {
-            if c != '\'' {
-                lex.bump(total_len);
-                return true;
-            } else {
-                if quote_count > 4 {
-                    return false;
-                }
-
-                quote_count += 1;
-                total_len += c.len_utf8();
-                continue;
-            }
-        }
-        total_len += c.len_utf8();
-
-        if c == '\'' {
-            quote_count += 1;
-        } else {
-            quote_count = 0;
-        }
-
-        if quote_count == 3 {
-            quotes_found = true;
-        }
-    }
-
-    // End of input
-    if quotes_found {
-        lex.bump(total_len);
-        true
-    } else {
-        false
-    }
+    lex_multi_line(lex, b'\'', false)
 }

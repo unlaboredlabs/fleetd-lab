@@ -244,6 +244,12 @@ impl Query {
 
     #[must_use]
     pub fn empty_line(&self) -> bool {
+        // Lines of multi-line inline tables (TOML 1.1) contain the entries of the inline table,
+        // not the entries of the parent table.
+        if self.in_inline_table() {
+            return false;
+        }
+
         let before_syntax = match self.before.as_ref() {
             Some(s) => &s.syntax,
             None => return true,
@@ -464,4 +470,37 @@ fn full_range(keys: &Keys, node: &Node) -> TextRange {
     };
 
     join_ranges(last_key.chain(node.text_ranges(true)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn query_at(src: &str, offset: usize) -> (Node, Query) {
+        let root = taplo::parser::parse(src).into_dom();
+        let query = Query::at(&root, TextSize::try_from(offset).unwrap());
+        (root, query)
+    }
+
+    #[test]
+    fn empty_line_in_multi_line_inline_table() {
+        let src = "[tbl]\nserver = {\n  host = \"localhost\", # comment\n  \n}\n\n";
+
+        // On the blank line inside the inline table.
+        let offset = src.find("  \n}").unwrap() + 2;
+        let (_, query) = query_at(src, offset);
+
+        assert!(!query.empty_line());
+        assert!(query.in_inline_table());
+        assert!(query.in_entry_value());
+
+        let (keys, node) = query.dom_node().unwrap();
+        assert_eq!(keys.to_string(), "tbl.server");
+        assert!(node.as_table().is_some());
+
+        // On the blank line after the inline table.
+        let (_, query) = query_at(src, src.len() - 1);
+        assert!(query.empty_line());
+        assert!(!query.in_inline_table());
+    }
 }

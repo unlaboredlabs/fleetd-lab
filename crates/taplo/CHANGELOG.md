@@ -1,5 +1,21 @@
 # Change Log
 
+## Unreleased
+
+### Features
+
+- Support TOML 1.1.0 ([#332](https://github.com/tamasfe/taplo/issues/332))
+  - `\e` and `\xHH` escape sequences
+  - Optional seconds in times and date-times
+  - Newlines, comments and trailing commas in inline tables
+- Format multi-line inline tables like multi-line arrays, with one entry on each line ([#331](https://github.com/tamasfe/taplo/issues/331))
+
+### Fixes
+
+- Fix all failing toml-test cases, including non-ASCII characters in comments and literal strings,
+  local date-times, control characters and redefined tables
+- Fix lost comments and non-idempotent formatting in some cases
+
 ## 0.14.0
 
 ### Fixes

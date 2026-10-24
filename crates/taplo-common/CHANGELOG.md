@@ -1,5 +1,11 @@
 # Change Log
 
+## Unreleased
+
+### Features
+
+- Add `Config::from_toml` for parsing configuration files with Taplo's own parser, supporting TOML 1.1.0
+
 ## 0.6.0
 
 ### Fixes

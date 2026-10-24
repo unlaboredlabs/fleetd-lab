@@ -1,5 +1,3 @@
-use logos::{Lexer, Logos};
-
 /// Escaping based on:
 ///
 /// \b         - backspace       (U+0008)
@@ -7,51 +5,70 @@ use logos::{Lexer, Logos};
 /// \n         - linefeed        (U+000A)
 /// \f         - form feed       (U+000C)
 /// \r         - carriage return (U+000D)
+/// \e         - escape          (U+001B)
 /// \"         - quote           (U+0022)
 /// \\         - backslash       (U+005C)
-/// \uXXXX     - unicode         (U+XXXX)
-/// \UXXXXXXXX - unicode         (U+XXXXXXXX)
-#[derive(Logos, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Escape {
-    #[token(r#"\b"#)]
-    Backspace,
+/// \xHH       - unicode         (U+00HH)
+/// \uHHHH     - unicode         (U+HHHH)
+/// \UHHHHHHHH - unicode         (U+HHHHHHHH)
+///
+/// A backslash at the end of a line (only possible in multi-line strings)
+/// trims all whitespace and newlines up to the next non-whitespace character.
+///
+/// Returns the unescaped character (`None` for a line ending backslash)
+/// and the length of the sequence in bytes, without the backslash.
+///
+/// The input must start right after the backslash.
+fn parse_escape(s: &str) -> Result<(Option<char>, usize), ()> {
+    let c = s.chars().next().ok_or(())?;
 
-    #[token(r#"\t"#)]
-    Tab,
+    let unescaped = match c {
+        'b' => '\u{0008}',
+        't' => '\u{0009}',
+        'n' => '\u{000A}',
+        'f' => '\u{000C}',
+        'r' => '\u{000D}',
+        'e' => '\u{001B}',
+        '"' => '\u{0022}',
+        '\\' => '\u{005C}',
+        'x' => return parse_hex_escape(s, 2),
+        'u' => return parse_hex_escape(s, 4),
+        'U' => return parse_hex_escape(s, 8),
+        ' ' | '\t' | '\n' | '\r' => return parse_line_ending_backslash(s),
+        _ => return Err(()),
+    };
 
-    #[regex(r#"(\\\s*\n)|(\\\s*\r\n)"#)]
-    Newline,
-
-    #[token(r#"\n"#)]
-    LineFeed,
-
-    #[token(r#"\f"#)]
-    FormFeed,
-
-    #[token(r#"\r"#)]
-    CarriageReturn,
-
-    #[token(r#"\""#)]
-    Quote,
-
-    #[token(r#"\\"#)]
-    Backslash,
-
-    // Same thing repeated 4 times, but the {n} repetition syntax is not supported by Logos
-    #[regex(r#"\\u[0-9A-Fa-f_][0-9A-Fa-f_][0-9A-Fa-f_][0-9A-Fa-f_]"#)]
-    Unicode,
-
-    // Same thing repeated 8 times, but the {n} repetition syntax is not supported by Logos
-    #[regex(r#"\\U[0-9A-Fa-f_][0-9A-Fa-f_][0-9A-Fa-f_][0-9A-Fa-f_][0-9A-Fa-f_][0-9A-Fa-f_][0-9A-Fa-f_][0-9A-Fa-f_]"#)]
-    UnicodeLarge,
-
-    #[regex(r#"\\."#)]
-    Unknown,
-
-    #[error]
-    UnEscaped,
+    Ok((Some(unescaped), 1))
 }
-use Escape::*;
+
+fn parse_hex_escape(s: &str, digit_count: usize) -> Result<(Option<char>, usize), ()> {
+    let digits = s.get(1..1 + digit_count).ok_or(())?;
+
+    if !digits.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(());
+    }
+
+    let value = u32::from_str_radix(digits, 16).map_err(|_| ())?;
+    let c = char::from_u32(value).ok_or(())?;
+
+    Ok((Some(c), 1 + digit_count))
+}
+
+fn parse_line_ending_backslash(s: &str) -> Result<(Option<char>, usize), ()> {
+    let rest = s.trim_start_matches([' ', '\t']);
+
+    let rest = if let Some(rest) = rest.strip_prefix('\n') {
+        rest
+    } else if let Some(rest) = rest.strip_prefix("\r\n") {
+        rest
+    } else {
+        return Err(());
+    };
+
+    let rest = rest.trim_start_matches([' ', '\t', '\n', '\r']);
+
+    Ok((None, s.len() - rest.len()))
+}
 
 /// Escape values in a given string.
 pub fn escape(s: &str) -> String {
@@ -66,6 +83,10 @@ pub fn escape(s: &str) -> String {
             '\u{000D}' => escaped.push_str(r#"\r"#),
             '\u{0022}' => escaped.push_str(r#"\""#),
             '\u{005C}' => escaped.push_str(r#"\\"#),
+            // Other control characters are not allowed in strings.
+            '\u{0000}'..='\u{001F}' | '\u{007F}' => {
+                escaped.push_str(&format!(r#"\u{:04X}"#, c as u32));
+            }
             _ => {
                 escaped.push(c);
             }
@@ -75,98 +96,50 @@ pub fn escape(s: &str) -> String {
     escaped
 }
 
-/// Unescape all supported sequences found in [Escape](Escape).
+/// Unescape all supported escape sequences.
 ///
 /// If it fails, the index of failure is returned.
 pub fn unescape(s: &str) -> Result<String, usize> {
     let mut new_s = String::with_capacity(s.len());
-    let mut lexer: Lexer<Escape> = Lexer::new(s);
+    let mut rest = s;
 
-    while let Some(t) = lexer.next() {
-        match t {
-            Backspace => new_s += "\u{0008}",
-            Tab => new_s += "\u{0009}",
-            LineFeed => new_s += "\u{000A}",
-            FormFeed => new_s += "\u{000C}",
-            CarriageReturn => new_s += "\u{000D}",
-            Quote => new_s += "\u{0022}",
-            Backslash => new_s += "\u{005C}",
-            Newline => {}
-            Unicode => {
-                new_s += &std::char::from_u32(
-                    u32::from_str_radix(&lexer.slice()[2..], 16).map_err(|_| lexer.span().start)?,
-                )
-                .ok_or(lexer.span().start)?
-                .to_string();
-            }
-            UnicodeLarge => {
-                new_s += &std::char::from_u32(
-                    u32::from_str_radix(&lexer.slice()[2..], 16).map_err(|_| lexer.span().start)?,
-                )
-                .ok_or(lexer.span().start)?
-                .to_string();
-            }
-            Unknown => return Err(lexer.span().end),
-            UnEscaped => {
-                new_s += lexer.slice();
-            }
+    while let Some(backslash_idx) = rest.find('\\') {
+        new_s += &rest[..backslash_idx];
+
+        let escape_start = s.len() - rest.len() + backslash_idx;
+        let (unescaped, len) =
+            parse_escape(&rest[backslash_idx + 1..]).map_err(|_| escape_start)?;
+
+        if let Some(c) = unescaped {
+            new_s.push(c);
         }
+
+        rest = &rest[backslash_idx + 1 + len..];
     }
 
-    Ok(new_s + lexer.remainder())
+    Ok(new_s + rest)
 }
 
 /// Same as unescape, but doesn't create a new
 /// unescaped string, and returns all invalid escape indices.
 pub fn check_escape(s: &str) -> Result<(), Vec<usize>> {
-    let mut lexer: Lexer<Escape> = Lexer::new(s);
     let mut invalid = Vec::new();
+    let mut rest = s;
 
-    while let Some(t) = lexer.next() {
-        match t {
-            Backspace => {}
-            Tab => {}
-            LineFeed => {}
-            FormFeed => {}
-            CarriageReturn => {}
-            Quote => {}
-            Backslash => {}
-            Newline => {}
-            Unicode => {
-                let char_val = match u32::from_str_radix(&lexer.slice()[2..], 16) {
-                    Ok(v) => v,
-                    Err(_) => {
-                        invalid.push(lexer.span().start);
-                        continue;
-                    }
-                };
+    while let Some(backslash_idx) = rest.find('\\') {
+        let after_backslash = &rest[backslash_idx + 1..];
 
-                match std::char::from_u32(char_val) {
-                    None => {
-                        invalid.push(lexer.span().start);
-                    }
-                    Some(_) => {}
-                };
+        let len = match parse_escape(after_backslash) {
+            Ok((_, len)) => len,
+            Err(_) => {
+                invalid.push(s.len() - rest.len() + backslash_idx);
+                // Skip the character after the backslash as well,
+                // so that an escaped backslash is not reported twice.
+                after_backslash.chars().next().map_or(0, char::len_utf8)
             }
-            UnicodeLarge => {
-                let char_val = match u32::from_str_radix(&lexer.slice()[2..], 16) {
-                    Ok(v) => v,
-                    Err(_) => {
-                        invalid.push(lexer.span().start);
-                        continue;
-                    }
-                };
+        };
 
-                match std::char::from_u32(char_val) {
-                    None => {
-                        invalid.push(lexer.span().start);
-                    }
-                    Some(_) => {}
-                };
-            }
-            Unknown => invalid.push(lexer.span().start),
-            UnEscaped => {}
-        }
+        rest = &after_backslash[len..];
     }
 
     if invalid.is_empty() {

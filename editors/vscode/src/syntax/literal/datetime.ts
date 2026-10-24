@@ -1,6 +1,6 @@
 const localTime = {
   name: "constant.other.time.time.toml",
-  match: /\d{2}:\d{2}:\d{2}(?:\.\d+)?/.source,
+  match: /\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?/.source,
 };
 
 const localDate = {
@@ -14,7 +14,7 @@ const localDateTime = {
       name: "constant.other.time.datetime.local.toml",
     },
   },
-  match: "(\\d{4}\\-\\d{2}\\-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?)",
+  match: "(\\d{4}\\-\\d{2}\\-\\d{2}T\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d+)?)?)",
 };
 
 const offsetDateTime = {
@@ -24,7 +24,7 @@ const offsetDateTime = {
     },
   },
   match:
-    "(?<!\\w)(\\d{4}\\-\\d{2}\\-\\d{2}[T| ]\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[\\+\\-]\\d{2}:\\d{2}))(?!\\w)",
+    "(?<!\\w)(\\d{4}\\-\\d{2}\\-\\d{2}[T| ]\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d+)?)?(?:Z|[\\+\\-]\\d{2}:\\d{2}))(?!\\w)",
 };
 
 // ordered, must be reversed

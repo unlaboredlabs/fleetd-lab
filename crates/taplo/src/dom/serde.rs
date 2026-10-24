@@ -231,6 +231,7 @@ impl<'de> Visitor<'de> for TomlVisitor {
             header: Default::default(),
             kind: super::node::TableKind::Regular,
             entries: Default::default(),
+            defined_by_header: Default::default(),
         };
 
         table.entries.update(|entries| loop {
