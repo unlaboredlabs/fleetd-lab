@@ -59,7 +59,7 @@ create_options!(
         pub align_single_comments: bool,
 
         /// Put trailing commas for multiline
-        /// arrays.
+        /// arrays and multiline inline tables.
         pub array_trailing_comma: bool,
 
         /// Automatically expand arrays to multiple lines once they
