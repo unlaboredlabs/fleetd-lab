@@ -42,5 +42,8 @@ time        = { workspace = true, features = ["formatting", "parsing"] }
 toml        = { workspace = true }
 tracing     = { workspace = true }
 
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt"] }
+
 [package.metadata.auto-tag]
 enabled = true
