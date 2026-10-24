@@ -747,3 +747,86 @@ mod formats {
         semver::VersionReq::parse(value).is_ok()
     }
 }
+
+#[cfg(all(test, not(target_family = "wasm")))]
+mod tests {
+    use super::Schemas;
+    use crate::environment::native::NativeEnvironment;
+    use serde_json::json;
+    use taplo::rowan::{TextRange, TextSize};
+    use url::Url;
+
+    const TOML_1_1_DOCUMENT: &str = r#"# Ünïcödé comment — 日本語
+esc = "\e[0m \x41\xe9"
+time = 07:32
+local = 1979-05-27 07:32
+offset = 1979-05-27T07:32Z
+1 = "numeric key"
+point = {
+    x = 1, # the x coordinate
+    # a comment line
+    y = 2,
+}
+"#;
+
+    fn validation_errors(toml: &str) -> Vec<TextRange> {
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let schemas = Schemas::new(NativeEnvironment::new(), reqwest::Client::new());
+                let url: Url = "taplo-test://schema.json".parse().unwrap();
+                let schema = json!({
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "esc": { "const": "\u{1b}[0m A\u{e9}" },
+                        "time": { "const": "07:32:00" },
+                        "local": { "const": "1979-05-27T07:32:00" },
+                        "offset": { "type": "string", "format": "date-time" },
+                        "1": { "type": "string" },
+                        "point": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "x": { "type": "integer" },
+                                "y": { "type": "integer" },
+                            },
+                        },
+                    },
+                });
+                schemas.add_schema(&url, schema.into()).await;
+
+                let dom = taplo::parser::parse(toml).into_dom();
+                schemas
+                    .validate_root(&url, &dom)
+                    .await
+                    .unwrap()
+                    .iter()
+                    .flat_map(|error| error.text_ranges().collect::<Vec<_>>())
+                    .collect()
+            })
+    }
+
+    /// The range of the first occurrence of `pattern` without a trailing `,`.
+    fn range_of(text: &str, pattern: &str) -> TextRange {
+        let start = text.find(pattern).unwrap();
+        TextRange::at(
+            TextSize::try_from(start).unwrap(),
+            TextSize::try_from(pattern.trim_end_matches(',').len()).unwrap(),
+        )
+    }
+
+    #[test]
+    fn validate_toml_1_1() {
+        assert_eq!(validation_errors(TOML_1_1_DOCUMENT), Vec::new());
+    }
+
+    #[test]
+    fn validate_toml_1_1_errors_in_multi_line_inline_table() {
+        let toml = TOML_1_1_DOCUMENT.replace("y = 2,", "y = \"two\", # not an integer\n    z = 3,");
+        let errors = validation_errors(&toml);
+        assert!(errors.contains(&range_of(&toml, "\"two\"")), "{errors:?}");
+        assert!(errors.contains(&range_of(&toml, "3,")), "{errors:?}");
+    }
+}

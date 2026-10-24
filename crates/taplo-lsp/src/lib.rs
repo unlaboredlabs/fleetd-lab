@@ -26,6 +26,9 @@ pub mod lsp_ext;
 pub mod query;
 pub mod world;
 
+#[cfg(test)]
+mod tests;
+
 #[must_use]
 pub fn create_server<E: Environment>() -> Server<World<E>> {
     Server::new()

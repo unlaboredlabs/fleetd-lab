@@ -58,6 +58,11 @@ pub async fn completion<E: Environment>(
 
     let query = Query::at(&doc.dom, offset);
 
+    // Nothing to complete inside comments (incl. those in multi-line inline tables).
+    if query.in_comment() {
+        return Ok(None);
+    }
+
     let value = match serde_json::to_value(&doc.dom) {
         Ok(v) => v,
         Err(error) => {
@@ -184,14 +189,18 @@ pub async fn completion<E: Environment>(
     }
 
     if query.empty_line() {
-        let parent_table = query.parent_table_or_array_table(&doc.dom);
+        // An empty line can also be inside a multi-line inline table (TOML 1.1).
+        let parent_keys = match query.dom_node() {
+            Some((keys, _)) if query.in_inline_table() => keys.clone(),
+            _ => query.parent_table_or_array_table(&doc.dom).0,
+        };
 
         let schemas = match ws
             .schemas
             .possible_schemas_from(
                 &schema_association.url,
                 &value,
-                &lookup_keys(doc.dom.clone(), &parent_table.0),
+                &lookup_keys(doc.dom.clone(), &parent_keys),
                 ws.config.completion.max_keys + 1,
             )
             .await
@@ -421,14 +430,20 @@ pub async fn completion<E: Environment>(
                 kind: Some(CompletionItemKind::VARIABLE),
                 documentation: documentation(&schema),
                 insert_text_format: Some(InsertTextFormat::SNIPPET),
-                text_edit: Some(CompletionTextEdit::Edit(TextEdit {
-                    range: doc
-                        .mapper
-                        .range(entry_keys.all_text_range())
-                        .unwrap()
-                        .into_lsp(),
-                    new_text: new_entry_snippet(&relative_keys, &schema, false),
-                })),
+                // There are no keys to replace if the cursor is e.g. right before an entry.
+                insert_text: entry_keys
+                    .is_empty()
+                    .then(|| new_entry_snippet(&relative_keys, &schema, false)),
+                text_edit: (!entry_keys.is_empty()).then(|| {
+                    CompletionTextEdit::Edit(TextEdit {
+                        range: doc
+                            .mapper
+                            .range(entry_keys.all_text_range())
+                            .unwrap()
+                            .into_lsp(),
+                        new_text: new_entry_snippet(&relative_keys, &schema, false),
+                    })
+                }),
                 ..Default::default()
             })
             .collect(),
