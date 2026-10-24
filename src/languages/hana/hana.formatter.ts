@@ -2,7 +2,7 @@ import { DialectOptions } from '../../dialect.js';
 import { expandPhrases } from '../../expandPhrases.js';
 import { Token, TokenType } from '../../lexer/token.js';
 import { functions } from './hana.functions.js';
-import { dataTypes, keywords } from './hana.keywords.js';
+import { dataTypes, keywords, nameLikeKeywords } from './hana.keywords.js';
 
 // https://help.sap.com/docs/SAP_HANA_PLATFORM/4fe29514fd584807ac9f2a04f6754767/b4b0eec1968f41a099c828a4a6c8ca0f.html
 
@@ -262,7 +262,7 @@ export const hana: DialectOptions = {
 };
 
 function postProcess(tokens: Token[]): Token[] {
-  return disambiguateClauses(mergeSelectTop(splitRangeOperators(tokens)));
+  return disambiguateKeywords(disambiguateClauses(mergeSelectTop(splitRangeOperators(tokens))));
 }
 
 // Clauses that are only recognized at the start of a (SQLScript) statement.
@@ -336,9 +336,11 @@ function disambiguateClauses(tokens: Token[]): Token[] {
   // Nesting depth of CASE expressions
   let caseDepth = 0;
 
-  return tokens.flatMap((token, i): Token | Token[] => {
+  const result: Token[] = [];
+  const disambiguate = (token: Token, i: number): Token | Token[] => {
     const prev = prevToken(tokens, i);
-    if (isStatementStart(prev, caseDepth > 0)) {
+    // check the converted previous token, so that e.g. a table named do doesn't start a statement
+    if (isStatementStart(prevToken(result, result.length), caseDepth > 0)) {
       statement = undefined;
     }
     if (token.type === TokenType.CASE) {
@@ -380,9 +382,14 @@ function disambiguateClauses(tokens: Token[]): Token[] {
     if (token.type === TokenType.RESERVED_SELECT) {
       return token;
     }
-    // REPLACE(...) and LANGUAGE(...) are function calls
+    // REPLACE(...) and LANGUAGE(...) are function calls, but not table names like CREATE TABLE language (...)
     const next = nextToken(tokens, i);
-    if (next.type === TokenType.OPEN_PAREN && next.text === '(' && functions.includes(token.text)) {
+    if (
+      next.type === TokenType.OPEN_PAREN &&
+      next.text === '(' &&
+      functions.includes(token.text) &&
+      !isBeforeTableName(prev)
+    ) {
       return { ...token, type: TokenType.RESERVED_FUNCTION_NAME };
     }
     if (
@@ -415,7 +422,13 @@ function disambiguateClauses(tokens: Token[]): Token[] {
       return toKeywordOrIdentifier(token, prev, next, statement);
     }
     return token;
+  };
+
+  tokens.forEach((token, i) => {
+    const converted = disambiguate(token, i);
+    result.push(...(Array.isArray(converted) ? converted : [converted]));
   });
+  return result;
 }
 
 const toKeyword = (token: Token): Token => ({ ...token, type: TokenType.RESERVED_KEYWORD });
@@ -442,12 +455,59 @@ const toKeywordOrIdentifier = (
   ) {
     return toKeyword(token);
   }
-  if (isBeforeExpression(prev) || isAfterExpression(next)) {
-    return { ...token, type: TokenType.IDENTIFIER, text: token.raw };
+  if (
+    isBeforeExpression(prev) ||
+    isAfterExpression(next) ||
+    isBeforeTableName(prev) ||
+    (prev.type === TokenType.RESERVED_KEYWORD && prev.text === 'AS')
+  ) {
+    return toIdentifier(token);
   }
   // e.g. UNLOAD PRIORITY 5, AS OF COMMIT ID 5
   return toKeyword(token);
 };
+
+const toIdentifier = (token: Token): Token => ({
+  ...token,
+  type: TokenType.IDENTIFIER,
+  text: token.raw,
+});
+
+/**
+ * Converts non-reserved keywords that are used as names (e.g. SELECT id, page FROM unit)
+ * into identifiers. Runs after disambiguateClauses(), so clauses that were converted
+ * into keywords (e.g. LOAD in LOAD UNIT PAGE) count as keywords here.
+ */
+function disambiguateKeywords(tokens: Token[]): Token[] {
+  return tokens.map((token, i) => {
+    if (token.type !== TokenType.RESERVED_KEYWORD || !nameLikeKeywords.includes(token.text)) {
+      return token;
+    }
+    const prev = prevToken(tokens, i);
+    if (
+      isBeforeExpression(prev) ||
+      isBeforeTableName(prev) ||
+      (prev.type === TokenType.RESERVED_KEYWORD &&
+        ['AS', 'ON', 'TO', 'DISTINCT', 'NOT', 'LIKE'].includes(prev.text)) ||
+      // e.g. WHERE id = 1, but not LOAD UNIT PAGE; or WITH OVERVIEW;
+      (isAfterExpression(nextToken(tokens, i)) &&
+        prev.type !== TokenType.RESERVED_KEYWORD &&
+        prev.type !== TokenType.RESERVED_KEYWORD_PHRASE)
+    ) {
+      return toIdentifier(token);
+    }
+    return token;
+  });
+}
+
+// True when the token can be followed by a table name
+const isBeforeTableName = (prev: Token): boolean =>
+  prev.type === TokenType.RESERVED_JOIN ||
+  (prev.type === TokenType.RESERVED_KEYWORD && prev.text === 'USING') ||
+  (prev.type === TokenType.RESERVED_CLAUSE &&
+    /^(FROM|DELETE (HISTORY )?FROM|(INSERT |MERGE )?INTO|UPDATE|UPSERT|REPLACE|.* TABLE)$/.test(
+      prev.text
+    ));
 
 // True when the token can be followed by a column name or other expression
 const isBeforeExpression = (prev: Token): boolean =>
@@ -494,7 +554,7 @@ const isAfterExpression = (next: Token): boolean =>
     TokenType.LIMIT,
   ].includes(next.type) ||
   (next.type === TokenType.RESERVED_KEYWORD &&
-    ['AS', 'IS', 'IN', 'NOT', 'LIKE', 'ASC', 'DESC', 'NULLS'].includes(next.text));
+    ['AS', 'IS', 'IN', 'NOT', 'LIKE', 'ASC', 'DESC', 'NULLS', 'ON', 'USING'].includes(next.text));
 
 // Splits a two-word clause token like IMPORT FROM into two clause tokens
 function splitClause(token: Token): Token[] {
@@ -516,7 +576,9 @@ const isStatementStart = (prev: Token, inCase: boolean): boolean =>
   prev.type === TokenType.EOF ||
   prev.type === TokenType.DELIMITER ||
   (!inCase && (prev.type === TokenType.THEN || prev.type === TokenType.ELSE)) ||
-  (prev.type === TokenType.RESERVED_CLAUSE && /^(BEGIN|DO|LOOP)\b/.test(prev.text)) ||
+  // BEGIN, and DO or LOOP whether they are clauses or keywords (e.g. WHILE ... DO), but not identifiers
+  ((prev.type === TokenType.RESERVED_CLAUSE || prev.type === TokenType.RESERVED_KEYWORD) &&
+    /^(BEGIN|DO|LOOP)\b/.test(prev.text)) ||
   // the condition of DECLARE ... HANDLER FOR <condition> <statement>
   (prev.type === TokenType.RESERVED_KEYWORD_PHRASE && / HANDLER FOR$/.test(prev.text));
 
