@@ -5,6 +5,7 @@ mod generated {
 }
 
 mod formatter;
+mod formatter_toml_test;
 
 #[test]
 fn time_in_arrays() {
