@@ -295,6 +295,19 @@ const statementStartClauses = [
   'UNLOAD',
 ];
 
+// Statement words that HANA reserves, so elsewhere they can only be keywords, not column names
+const reservedStatementWords = [
+  'DECLARE',
+  'IF',
+  'ELSEIF',
+  'WHILE',
+  'FOR',
+  'LOOP',
+  'RETURN',
+  'EXEC',
+  'CONNECT',
+];
+
 // Clauses that are only recognized in the header of a procedure or function
 const routineHeaderClauses = [
   'LANGUAGE',
@@ -319,11 +332,20 @@ function disambiguateClauses(tokens: Token[]): Token[] {
   // Parenthesis nesting depth, and the depth at which the current statement started
   let depth = 0;
   let statementDepth = 0;
+  // Nesting depth of CASE expressions
+  let caseDepth = 0;
 
   return tokens.flatMap((token, i): Token | Token[] => {
     const prev = prevToken(tokens, i);
-    if (isStatementStart(prev)) {
+    if (isStatementStart(prev, caseDepth > 0)) {
       statement = undefined;
+    }
+    if (token.type === TokenType.CASE) {
+      caseDepth++;
+    } else if (token.type === TokenType.END && caseDepth > 0) {
+      caseDepth--;
+    } else if (token.type === TokenType.DELIMITER) {
+      caseDepth = 0;
     }
     if (token.type === TokenType.OPEN_PAREN) {
       depth++;
@@ -380,7 +402,7 @@ function disambiguateClauses(tokens: Token[]): Token[] {
     }
     // column names followed by a clause, e.g. SELECT import FROM t
     if (/^(IMPORT|EXPORT) (FROM|INTO)$/.test(token.text) && statement !== token) {
-      return splitClause(token).map(toKeywordOrIdentifier);
+      return splitClause(token).map(t => toKeywordOrIdentifier(t, prev, statement));
     }
     if (
       // column names like language, open or load, and loops like WHILE ... DO and FOR ... DO
@@ -388,7 +410,7 @@ function disambiguateClauses(tokens: Token[]): Token[] {
       (routineHeaderClauses.includes(token.text) &&
         !(isRoutineStatement(statement) && depth === statementDepth))
     ) {
-      return toKeywordOrIdentifier(token);
+      return toKeywordOrIdentifier(token, prev, statement);
     }
     return token;
   });
@@ -396,16 +418,24 @@ function disambiguateClauses(tokens: Token[]): Token[] {
 
 const toKeyword = (token: Token): Token => ({ ...token, type: TokenType.RESERVED_KEYWORD });
 
-// Converts a clause token to the token it would be without being a clause
-const toKeywordOrIdentifier = (token: Token): Token => {
+// Converts a clause token that doesn't start a clause into a keyword where it is part of
+// the syntax, and into an identifier (e.g. a column name) otherwise
+const toKeywordOrIdentifier = (token: Token, prev: Token, statement: Token | undefined): Token => {
   if (reservedClauses.includes(token.text)) {
     return token;
   }
-  if (keywords.includes(token.text)) {
+  if (
+    reservedStatementWords.includes(token.text) ||
+    // multi-word clauses, e.g. SQL SECURITY
+    token.text.includes(' ') ||
+    // loops like WHILE ... DO and FOR ... DO
+    (token.text === 'DO' && /^(WHILE|FOR)$/.test(statement?.text ?? '')) ||
+    // time travel, e.g. AS OF COMMIT ID 5
+    (token.text === 'COMMIT' && prev.text === 'OF') ||
+    // e.g. ALTER SYSTEM SAVEPOINT
+    (prev.type === TokenType.RESERVED_CLAUSE && prev.text === 'ALTER SYSTEM')
+  ) {
     return toKeyword(token);
-  }
-  if (functions.includes(token.text)) {
-    return { ...token, type: TokenType.RESERVED_FUNCTION_NAME };
   }
   return { ...token, type: TokenType.IDENTIFIER, text: token.raw };
 };
@@ -424,12 +454,12 @@ const isTriggerEvent = (token: Token): boolean =>
   (token.type === TokenType.RESERVED_CLAUSE || token.type === TokenType.RESERVED_KEYWORD) &&
   ['INSERT', 'UPDATE', 'DELETE'].includes(token.text);
 
-// True when the token preceding a statement is the end of previous statement or block opener
-const isStatementStart = (prev: Token): boolean =>
+// True when the token preceding a statement is the end of previous statement or block opener.
+// THEN and ELSE only open a block in SQLScript IF statements, not inside CASE expressions.
+const isStatementStart = (prev: Token, inCase: boolean): boolean =>
   prev.type === TokenType.EOF ||
   prev.type === TokenType.DELIMITER ||
-  prev.type === TokenType.THEN ||
-  prev.type === TokenType.ELSE ||
+  (!inCase && (prev.type === TokenType.THEN || prev.type === TokenType.ELSE)) ||
   (prev.type === TokenType.RESERVED_CLAUSE && /^(BEGIN|DO|LOOP)\b/.test(prev.text)) ||
   // the condition of DECLARE ... HANDLER FOR <condition> <statement>
   (prev.type === TokenType.RESERVED_KEYWORD_PHRASE && / HANDLER FOR$/.test(prev.text));

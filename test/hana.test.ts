@@ -802,6 +802,140 @@ describe('HanaFormatter', () => {
     });
   });
 
+  describe('unreserved clause words in CASE expressions', () => {
+    it('formats THEN open ELSE close as column names', () => {
+      expect(format('SELECT CASE WHEN a = 1 THEN open ELSE close END AS x FROM t')).toBe(dedent`
+        SELECT
+          CASE
+            WHEN a = 1 THEN open
+            ELSE close
+          END AS x
+        FROM
+          t
+      `);
+    });
+
+    it('formats THEN load as a column name', () => {
+      expect(format('SELECT CASE WHEN a = 1 THEN load ELSE 0 END AS x FROM t')).toBe(dedent`
+        SELECT
+          CASE
+            WHEN a = 1 THEN load
+            ELSE 0
+          END AS x
+        FROM
+          t
+      `);
+    });
+
+    it('formats a column after a CASE expression', () => {
+      expect(format('SELECT CASE WHEN a = 1 THEN 1 ELSE 0 END AS flag, open FROM t')).toBe(dedent`
+        SELECT
+          CASE
+            WHEN a = 1 THEN 1
+            ELSE 0
+          END AS flag,
+          open
+        FROM
+          t
+      `);
+    });
+
+    it('still starts a statement after THEN and ELSE of SQLScript IF', () => {
+      expect(
+        format(
+          'IF :a > 0 THEN x = CASE WHEN :a > 1 THEN 1 ELSE 0 END; CALL p(); ELSE CALL q(); END IF;'
+        )
+      ).toBe(dedent`
+        IF :a > 0 THEN x = CASE
+          WHEN :a > 1 THEN 1
+          ELSE 0
+        END;
+
+        CALL p ();
+
+        ELSE
+        CALL q ();
+
+        END IF;
+      `);
+    });
+  });
+
+  describe('case of unreserved clause words', () => {
+    it('applies identifierCase and not keywordCase to column names', () => {
+      const sql = 'select ID, Language, Returns, OPEN, Load, Commit, call, Fetch, do from T';
+      expect(format(sql, { keywordCase: 'upper', identifierCase: 'lower' })).toBe(dedent`
+        SELECT
+          id,
+          language,
+          returns,
+          open,
+          load,
+          commit,
+          call,
+          fetch,
+          do
+        FROM
+          t
+      `);
+      expect(format(sql, { keywordCase: 'lower', identifierCase: 'upper' })).toBe(dedent`
+        select
+          ID,
+          LANGUAGE,
+          RETURNS,
+          OPEN,
+          LOAD,
+          COMMIT,
+          CALL,
+          FETCH,
+          DO
+        from
+          T
+      `);
+    });
+
+    it('applies identifierCase to column names in CASE expressions', () => {
+      expect(
+        format('select case when a = 1 then Open else Close end as x from t', {
+          keywordCase: 'upper',
+          identifierCase: 'lower',
+        })
+      ).toBe(dedent`
+        SELECT
+          CASE
+            WHEN a = 1 THEN open
+            ELSE close
+          END AS x
+        FROM
+          t
+      `);
+    });
+
+    it('applies keywordCase to these words where they are syntax', () => {
+      expect(
+        format(
+          'while :i < 3 do i = :i + 1; end while; select * from t as of commit id 5; alter system savepoint; call p(); load t all;',
+          { keywordCase: 'upper', identifierCase: 'lower' }
+        )
+      ).toBe(dedent`
+        WHILE :i < 3 DO i = :i + 1;
+
+        END WHILE;
+
+        SELECT
+          *
+        FROM
+          t AS OF COMMIT id 5;
+
+        ALTER SYSTEM SAVEPOINT;
+
+        CALL p ();
+
+        LOAD t ALL;
+      `);
+    });
+  });
+
   describe('idempotency of unreserved clause words and time travel', () => {
     const samples = [
       'SELECT id, language, returns, open, load FROM t WHERE language = 1 ORDER BY load;',
@@ -812,11 +946,17 @@ describe('HanaFormatter', () => {
       'DO BEGIN DECLARE EXIT HANDLER FOR SQLEXCEPTION CALL log_err(); OPEN c; FETCH c INTO v; CLOSE c; COMMIT; END;',
       'SELECT * FROM t AS OF COMMIT ID 5 WHERE a = 1;',
       "SELECT * FROM t AS OF UTCTIMESTAMP '2024-01-01 00:00:00';",
+      'SELECT CASE WHEN a = 1 THEN open ELSE close END AS x FROM t;',
+      'SELECT CASE WHEN a = 1 THEN load ELSE 0 END AS x FROM t;',
+      'SELECT CASE WHEN a = 1 THEN 1 ELSE 0 END AS flag, open FROM t;',
+      'IF :a > 0 THEN x = CASE WHEN :a > 1 THEN 1 ELSE 0 END; CALL p(); ELSE CALL q(); END IF;',
+      'select ID, Language, Returns, OPEN, Load, Commit, call, Fetch, do from T;',
     ];
 
     const configs = [
       {},
       { keywordCase: 'upper', identifierCase: 'lower' } as const,
+      { keywordCase: 'lower', identifierCase: 'upper' } as const,
       { indentStyle: 'tabularLeft' } as const,
       { indentStyle: 'tabularRight', newlineBeforeSemicolon: true } as const,
     ];
