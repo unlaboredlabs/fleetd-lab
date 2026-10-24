@@ -12,11 +12,32 @@ pub use escape::check_escape;
 pub use escape::{escape, unescape};
 
 pub(crate) mod allowed_chars {
-    pub(crate) fn comment(s: &str) -> Result<(), Vec<usize>> {
+    //! Character checks based on the TOML 1.1 ABNF.
+    //!
+    //! The returned indices are byte offsets into the given string.
+
+    /// Control characters that are never allowed unescaped,
+    /// tab is always allowed.
+    fn is_forbidden_control(c: char) -> bool {
+        c != '\t' && (('\u{0000}'..='\u{001F}').contains(&c) || c == '\u{007F}')
+    }
+
+    fn check(s: &str, allow_newlines: bool) -> Result<(), Vec<usize>> {
         let mut err_indices = Vec::new();
 
-        for (i, c) in s.chars().enumerate() {
-            if c != '\t' && c.is_control() {
+        let mut chars = s.char_indices().peekable();
+        while let Some((i, c)) = chars.next() {
+            if allow_newlines {
+                // Only LF and CRLF are newlines, a bare CR is not allowed.
+                if c == '\n' {
+                    continue;
+                }
+                if c == '\r' && matches!(chars.peek(), Some((_, '\n'))) {
+                    continue;
+                }
+            }
+
+            if is_forbidden_control(c) {
                 err_indices.push(i);
             }
         }
@@ -26,80 +47,26 @@ pub(crate) mod allowed_chars {
         } else {
             Err(err_indices)
         }
+    }
+
+    pub(crate) fn comment(s: &str) -> Result<(), Vec<usize>> {
+        check(s, false)
     }
 
     pub(crate) fn string(s: &str) -> Result<(), Vec<usize>> {
-        let mut err_indices = Vec::new();
-
-        for (i, c) in s.chars().enumerate() {
-            if c != '\t'
-                && (('\u{0000}'..='\u{0008}').contains(&c)
-                    || ('\u{000A}'..='\u{001F}').contains(&c)
-                    || c == '\u{007F}')
-            {
-                err_indices.push(i);
-            }
-        }
-
-        if err_indices.is_empty() {
-            Ok(())
-        } else {
-            Err(err_indices)
-        }
+        check(s, false)
     }
 
     pub(crate) fn multi_line_string(s: &str) -> Result<(), Vec<usize>> {
-        let mut err_indices = Vec::new();
-
-        for (i, c) in s.chars().enumerate() {
-            if c != '\t'
-                && c != '\n'
-                && c != '\r'
-                && (('\u{0000}'..='\u{0008}').contains(&c)
-                    || ('\u{000A}'..='\u{001F}').contains(&c)
-                    || c == '\u{007F}')
-            {
-                err_indices.push(i);
-            }
-        }
-
-        if err_indices.is_empty() {
-            Ok(())
-        } else {
-            Err(err_indices)
-        }
+        check(s, true)
     }
 
     pub(crate) fn string_literal(s: &str) -> Result<(), Vec<usize>> {
-        let mut err_indices = Vec::new();
-
-        for (i, c) in s.chars().enumerate() {
-            if c != '\t' && c.is_control() {
-                err_indices.push(i);
-            }
-        }
-
-        if err_indices.is_empty() {
-            Ok(())
-        } else {
-            Err(err_indices)
-        }
+        check(s, false)
     }
 
     pub(crate) fn multi_line_string_literal(s: &str) -> Result<(), Vec<usize>> {
-        let mut err_indices = Vec::new();
-
-        for (i, c) in s.chars().enumerate() {
-            if c != '\t' && c != '\n' && c != '\r' && c.is_control() {
-                err_indices.push(i);
-            }
-        }
-
-        if err_indices.is_empty() {
-            Ok(())
-        } else {
-            Err(err_indices)
-        }
+        check(s, true)
     }
 }
 
