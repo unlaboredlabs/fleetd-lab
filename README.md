@@ -7,7 +7,7 @@
 It started as a port of a [PHP Library][], but has since considerably diverged.
 
 It supports various SQL dialects:
-GCP BigQuery, Clickhouse, IBM DB2, DuckDB, Apache Hive, MariaDB, MySQL, TiDB, Couchbase N1QL, Oracle PL/SQL, PostgreSQL, Amazon Redshift, SingleStoreDB, Snowflake, Spark, SQL Server Transact-SQL, Trino (and Presto).
+GCP BigQuery, Clickhouse, IBM DB2, DuckDB, SAP HANA, Apache Hive, MariaDB, MySQL, TiDB, Couchbase N1QL, Oracle PL/SQL, PostgreSQL, Amazon Redshift, SingleStoreDB, Snowflake, Spark, SQL Server Transact-SQL, Trino (and Presto).
 See [language option docs](docs/language.md) for more details.
 
 It does not support:
@@ -117,7 +117,7 @@ sql-formatter -h
 
 ```
 usage: sql-formatter [-h] [-o OUTPUT] \
-[-l {bigquery,clickhouse,db2,db2i,hive,mariadb,mysql,n1ql,plsql,postgresql,redshift,singlestoredb,snowflake,spark,sql,sqlite,tidb,transactsql,trino,tsql}] [-c CONFIG] [--version] [FILE]
+[-l {bigquery,clickhouse,db2,db2i,hana,hive,mariadb,mysql,n1ql,plsql,postgresql,redshift,singlestoredb,snowflake,spark,sql,sqlite,tidb,transactsql,trino,tsql}] [-c CONFIG] [--version] [FILE]
 
 SQL Formatter
 
@@ -129,7 +129,7 @@ optional arguments:
   -o, --output    OUTPUT
                     File to write SQL output (defaults to stdout)
   --fix           Update the file in-place
-  -l, --language  {bigquery,clickhouse,db2,db2i,hive,mariadb,mysql,n1ql,plsql,postgresql,redshift,singlestoredb,snowflake,spark,sql,sqlite,tidb,trino,tsql}
+  -l, --language  {bigquery,clickhouse,db2,db2i,hana,hive,mariadb,mysql,n1ql,plsql,postgresql,redshift,singlestoredb,snowflake,spark,sql,sqlite,tidb,trino,tsql}
                     SQL dialect (defaults to basic sql)
   -c, --config    CONFIG
                     Path to config JSON file or json string (will find a file named '.sql-formatter.json' or use default configs if unspecified)

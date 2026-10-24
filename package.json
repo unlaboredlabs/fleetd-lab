@@ -34,6 +34,7 @@
     "transact-sql",
     "db2",
     "db2i",
+    "hana",
     "sqlite",
     "tidb",
     "trino",
