@@ -59,7 +59,7 @@ create_options!(
         pub align_single_comments: bool,
 
         /// Put trailing commas for multiline
-        /// arrays.
+        /// arrays and inline tables.
         pub array_trailing_comma: bool,
 
         /// Automatically expand arrays to multiple lines once they
@@ -564,6 +564,10 @@ fn format_root(node: SyntaxNode, options: &Options, context: &Context) -> String
                         }
                     }
 
+                    // Blank lines that are removed must not separate groups either,
+                    // otherwise the output would be grouped differently.
+                    newline_count = cmp::min(newline_count, scoped_options.allowed_blank_lines + 1);
+
                     if newline_count > 1 {
                         add_comments(
                             &mut comment_group,
@@ -630,11 +634,36 @@ fn add_entries(
     options: &Options,
     context: &Context,
 ) -> bool {
-    let were_entries = !entry_group.is_empty();
-
     if options.reorder_keys {
         entry_group.sort();
     }
+
+    write_entries(
+        entry_group,
+        &mut Vec::new(),
+        formatted,
+        options,
+        context,
+        false,
+    )
+}
+
+/// Write entries as aligned rows, one entry per line.
+///
+/// `commas` tells for each entry whether a comma is put after its value,
+/// it is applied by position after the entries were reordered.
+///
+/// If `comments_only` is set, comments are aligned only with each other,
+/// the width of entries without a comment does not matter.
+fn write_entries(
+    entry_group: &mut Vec<FormattedEntry>,
+    commas: &mut Vec<bool>,
+    formatted: &mut String,
+    options: &Options,
+    context: &Context,
+    comments_only: bool,
+) -> bool {
+    let were_entries = !entry_group.is_empty();
 
     let indent_chars_count = context.indent_level * options.indent_string.chars().count();
 
@@ -700,6 +729,12 @@ fn add_entries(
         }
     }
 
+    for (has_comma, entry) in commas.drain(0..).zip(entry_group.iter_mut()) {
+        if has_comma {
+            entry.value += ",";
+        }
+    }
+
     let mut comment_count = 0;
     // Transform the entries into generic rows that can be aligned.
     let rows = entry_group
@@ -739,6 +774,7 @@ fn add_entries(
         &rows,
         options.newline(),
         " ",
+        comments_only,
     );
 
     were_entries
@@ -861,13 +897,8 @@ fn format_inline_table(
     options: &Options,
     context: &Context,
 ) -> impl FormattedItem {
-    // TOML 1.1 allows newlines and comments in inline tables,
-    // these are not laid out yet, so we keep them as they are.
-    if node
-        .children_with_tokens()
-        .any(|c| matches!(c.kind(), NEWLINE | COMMENT))
-    {
-        let formatted = node.to_string();
+    if contains_multiline_inline_table(&node) {
+        let formatted = format_multiline_inline_table(&node, options, context);
         return (node.into(), formatted, None);
     }
 
@@ -954,6 +985,151 @@ fn format_inline_table(
 
     (node.into(), formatted, comment)
 }
+
+/// Whether the node is or contains an inline table with newlines between its entries.
+///
+/// TOML 1.1 allows newlines (and comments) in inline tables, we keep such tables
+/// multi-line, and also the inline tables and arrays that contain them.
+/// Newlines inside the values (e.g. arrays) don't count, they were allowed before.
+fn contains_multiline_inline_table(node: &SyntaxNode) -> bool {
+    node.descendants()
+        .any(|n| n.kind() == INLINE_TABLE && n.children_with_tokens().any(|c| c.kind() == NEWLINE))
+}
+
+/// Formats an inline table that has newlines like a multi-line array,
+/// with one entry per line.
+fn format_multiline_inline_table(
+    node: &SyntaxNode,
+    options: &Options,
+    context: &Context,
+) -> String {
+    let mut formatted = String::new();
+
+    // The entries are checked against the column width one by one
+    // (see [`write_entries`]), so expanding the table as a whole does nothing.
+    let mut inner_context = context.clone();
+    inner_context.indent_level += 1;
+    inner_context.force_multiline = false;
+
+    // We use the same strategy as for arrays, refer to [`format_array`].
+    let mut skip_newlines = 0;
+
+    let mut entry_group: Vec<FormattedEntry> = Vec::new();
+    let mut commas_group: Vec<bool> = Vec::new();
+
+    let add_entries = |entry_group: &mut Vec<FormattedEntry>,
+                       commas_group: &mut Vec<bool>,
+                       formatted: &mut String|
+     -> bool {
+        if options.reorder_inline_tables {
+            entry_group.sort();
+        }
+
+        write_entries(
+            entry_group,
+            commas_group,
+            formatted,
+            options,
+            &inner_context,
+            true,
+        )
+    };
+
+    let entry_count = node.children().count();
+    let mut entry_index = 0;
+
+    let mut dangling_newline_count = 0;
+
+    for c in node.children_with_tokens() {
+        match c {
+            NodeOrToken::Node(n) => {
+                if formatted.ends_with('{') {
+                    formatted += options.newline();
+                }
+
+                let entry = format_entry(n, options, &inner_context);
+
+                commas_group.push(entry_index < entry_count - 1 || options.array_trailing_comma);
+                entry_group.push(entry);
+                skip_newlines += 1;
+
+                entry_index += 1;
+            }
+            NodeOrToken::Token(t) => match t.kind() {
+                BRACE_START => {
+                    formatted += "{";
+                }
+                BRACE_END => {
+                    add_entries(&mut entry_group, &mut commas_group, &mut formatted);
+
+                    if !formatted.ends_with('\n') {
+                        formatted += options.newline();
+                    }
+
+                    formatted.extend(context.indent(options));
+                    formatted += "}";
+                }
+                NEWLINE => {
+                    let mut newline_count = t.text().newline_count();
+
+                    match dangling_newlines(t.clone()) {
+                        Some(dnl) => {
+                            dangling_newline_count += dnl;
+                            continue;
+                        }
+                        None => {
+                            newline_count += dangling_newline_count;
+                            dangling_newline_count = 0;
+                        }
+                    }
+
+                    // Blank lines that are removed must not separate groups either,
+                    // otherwise the output would be grouped differently.
+                    newline_count = cmp::min(newline_count, options.allowed_blank_lines + 1);
+
+                    if newline_count > 1 {
+                        add_entries(&mut entry_group, &mut commas_group, &mut formatted);
+                        skip_newlines = 0;
+                    }
+
+                    formatted.extend(options.newlines(newline_count.saturating_sub(skip_newlines)));
+                }
+                COMMENT => {
+                    let newline_before = t
+                        .siblings_with_tokens(rowan::Direction::Prev)
+                        .skip(1)
+                        .find(|s| s.kind() != WHITESPACE)
+                        .map(|s| s.kind() == NEWLINE)
+                        .unwrap_or(false);
+
+                    if let Some(entry) = entry_group.last_mut() {
+                        if !newline_before && entry.comment.is_none() {
+                            // It's a trailing comment of the last entry.
+                            entry.comment = Some(t.text().to_string());
+                            continue;
+                        }
+                    }
+
+                    if add_entries(&mut entry_group, &mut commas_group, &mut formatted) {
+                        formatted += options.newline();
+                        skip_newlines = 0;
+                    }
+
+                    if formatted.ends_with('{') {
+                        formatted += " ";
+                    } else {
+                        formatted.extend(inner_context.indent(options));
+                    }
+                    formatted += t.text();
+                }
+                _ => {}
+            },
+        }
+    }
+
+    formatted
+}
+
 // Check whether the array spans multiple lines in its current form.
 fn is_array_multiline(node: &SyntaxNode) -> bool {
     node.descendants_with_tokens().any(|n| n.kind() == NEWLINE)
@@ -961,6 +1137,7 @@ fn is_array_multiline(node: &SyntaxNode) -> bool {
 
 fn can_collapse_array(node: &SyntaxNode) -> bool {
     !node.descendants_with_tokens().any(|n| n.kind() == COMMENT)
+        && !contains_multiline_inline_table(node)
 }
 
 fn format_array(node: SyntaxNode, options: &Options, context: &Context) -> impl FormattedItem {
@@ -1035,6 +1212,7 @@ fn format_array(node: SyntaxNode, options: &Options, context: &Context) -> impl 
             &rows,
             options.newline(),
             " ",
+            false,
         );
 
         were_values
@@ -1123,6 +1301,10 @@ fn format_array(node: SyntaxNode, options: &Options, context: &Context) -> impl 
                         }
                     }
 
+                    // Blank lines that are removed must not separate groups either,
+                    // otherwise the output would be grouped differently.
+                    newline_count = cmp::min(newline_count, options.allowed_blank_lines + 1);
+
                     if newline_count > 1 {
                         add_values(
                             &mut value_group,
@@ -1143,7 +1325,7 @@ fn format_array(node: SyntaxNode, options: &Options, context: &Context) -> impl 
                         .map(|s| s.kind() == NEWLINE)
                         .unwrap_or(false);
 
-                    if !newline_before && !value_group.is_empty() {
+                    if !newline_before && matches!(value_group.last(), Some((_, None))) {
                         // It's actually trailing comment, so we add it to the last value.
                         value_group.last_mut().unwrap().1 = Some(t.text().to_string());
                         continue;
@@ -1240,12 +1422,16 @@ impl NewlineCount for &str {
 }
 
 // FIXME(docs)
+//
+// If `followed_only` is set, only rows that have an item after an aligned
+// item are taken into account for its width.
 fn format_rows<R, S>(
     align_range: Range<usize>,
     separator_range: Range<usize>,
     rows: &[R],
     newline: &str,
     separator: &str,
+    followed_only: bool,
 ) -> String
 where
     R: AsRef<[S]>,
@@ -1264,6 +1450,10 @@ where
 
         for row in rows {
             let row_len = row.as_ref().len();
+
+            if followed_only && row_len <= range.end {
+                continue;
+            }
 
             let range =
                 cmp::min(range.start, row_len.saturating_sub(1))..cmp::min(range.end, row_len);
