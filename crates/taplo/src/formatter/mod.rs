@@ -1081,7 +1081,7 @@ fn format_multiline_inline_table(
                 NEWLINE => {
                     let mut newline_count = t.text().newline_count();
 
-                    match dangling_newlines(t.clone()) {
+                    match dangling_newlines_in_list(t.clone()) {
                         Some(dnl) => {
                             dangling_newline_count += dnl;
                             continue;
@@ -1309,7 +1309,7 @@ fn format_array(node: SyntaxNode, options: &Options, context: &Context) -> impl 
 
                     let mut newline_count = t.text().newline_count();
 
-                    match dangling_newlines(t.clone()) {
+                    match dangling_newlines_in_list(t.clone()) {
                         Some(dnl) => {
                             dangling_newline_count += dnl;
                             continue;
@@ -1540,6 +1540,26 @@ fn dangling_newlines(t: SyntaxToken) -> Option<usize> {
             if nt.kind() == WHITESPACE && nnt.kind() == NEWLINE {
                 return Some(newline_count);
             }
+        }
+    }
+
+    None
+}
+
+/// [`dangling_newlines`] for arrays and inline tables.
+///
+/// Lines that contain only commas are removed from the output,
+/// so the newlines around them are counted as one run without the removed line.
+fn dangling_newlines_in_list(t: SyntaxToken) -> Option<usize> {
+    let newline_count = t.text().newline_count();
+    let mut comma_line = false;
+
+    for s in t.siblings_with_tokens(rowan::Direction::Next).skip(1) {
+        match s.kind() {
+            WHITESPACE => {}
+            COMMA => comma_line = true,
+            NEWLINE => return Some(newline_count - usize::from(comma_line)),
+            _ => return None,
         }
     }
 

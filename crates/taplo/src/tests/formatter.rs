@@ -1638,3 +1638,59 @@ d = 3 # d
     );
     assert_format!(expected, &formatted);
 }
+
+#[test]
+fn blank_lines_around_comma_only_lines() {
+    let src = r#"a = [
+  1
+
+
+
+,
+  2
+  ,
+
+  3,
+]
+b = {
+  c = 1
+
+
+
+,
+  d = 2
+  ,
+
+  e = 3,
+}
+"#;
+
+    // The lines with only a comma are removed,
+    // the blank lines around them are kept up to `allowed_blank_lines`.
+    let expected = r#"a = [
+  1,
+
+
+  2,
+
+  3,
+]
+b = {
+  c = 1,
+
+
+  d = 2,
+
+  e = 3,
+}
+"#;
+
+    let formatted = format_twice(
+        src,
+        Options {
+            array_auto_collapse: false,
+            ..Default::default()
+        },
+    );
+    assert_format!(expected, &formatted);
+}
