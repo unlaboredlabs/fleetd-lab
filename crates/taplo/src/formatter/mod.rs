@@ -861,6 +861,13 @@ fn format_inline_table(
     options: &Options,
     context: &Context,
 ) -> impl FormattedItem {
+    // TOML 1.1 allows comments inside inline tables, these are not
+    // supported by the formatter yet, so the table is kept as-is
+    // instead of dropping or misplacing the comments.
+    if has_inline_table_comments(&node) {
+        return (node.clone().into(), node.to_string(), None);
+    }
+
     let mut formatted = String::new();
     let mut comment = None;
 
@@ -944,6 +951,20 @@ fn format_inline_table(
 
     (node.into(), formatted, comment)
 }
+
+// Check whether the inline table itself (not a nested array or inline table)
+// contains comments, including ones trailing the values of its entries.
+fn has_inline_table_comments(node: &SyntaxNode) -> bool {
+    node.descendants_with_tokens()
+        .filter(|c| c.kind() == COMMENT)
+        .any(|c| {
+            c.ancestors()
+                .find(|a| matches!(a.kind(), INLINE_TABLE | ARRAY))
+                .as_ref()
+                == Some(node)
+        })
+}
+
 // Check whether the array spans multiple lines in its current form.
 fn is_array_multiline(node: &SyntaxNode) -> bool {
     node.descendants_with_tokens().any(|n| n.kind() == NEWLINE)
