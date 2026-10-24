@@ -1144,6 +1144,16 @@ describe('HanaFormatter', () => {
           'DO BEGIN DECLARE name INT; name := 1; END;',
           'ALTER TABLE t RENAME COLUMN a TO name;',
           'RENAME TABLE t TO name;',
+          'SELECT t.id name FROM t;',
+          'SELECT * FROM t JOIN unit name ON name.id = t.id;',
+          'SELECT * FROM t JOIN name node ON node.id = t.id;',
+          'SELECT SUM(a) OVER (ORDER BY name ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM t;',
+          'SELECT SUM(a) OVER (PARTITION BY name ORDER BY a RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM t;',
+          'WHILE :c < 3 DO name := :c + 1; END WHILE;',
+          'FOR i IN 1..3 DO name := :i; END FOR;',
+          "SELECT * FROM t WHERE a LIKE 'x!%' ESCAPE name;",
+          'WITH name AS (SELECT 1 AS a FROM DUMMY) SELECT a FROM name;',
+          'CALL p (name => 1);',
         ];
         const cfg = { keywordCase: 'upper', identifierCase: 'lower' } as const;
         sqls.forEach(sql => {
@@ -1153,16 +1163,83 @@ describe('HanaFormatter', () => {
       });
     });
 
+    it('applies identifierCase and not keywordCase to names in the contexts from review of #438', () => {
+      const cfg = { keywordCase: 'upper', identifierCase: 'lower' } as const;
+      expect(format('select t.ID Node from t', cfg)).toBe(dedent`
+        SELECT
+          t.id node
+        FROM
+          t
+      `);
+      expect(format('select * from t join Unit Node on Node.id = t.id', cfg)).toBe(dedent`
+        SELECT
+          *
+        FROM
+          t
+          JOIN unit node ON node.id = t.id
+      `);
+      expect(
+        format(
+          'select sum(a) over (order by ID rows between unbounded preceding and current row) from t',
+          cfg
+        )
+      ).toBe(dedent`
+        SELECT
+          sum(a) OVER (
+            ORDER BY
+              id ROWS BETWEEN UNBOUNDED PRECEDING
+              AND current ROW
+          )
+        FROM
+          t
+      `);
+      expect(format('while :c < 3 do ID := :ID + 1; end while;', cfg)).toBe(dedent`
+        WHILE :c < 3 DO id := :ID + 1;
+
+        END WHILE;
+      `);
+      expect(format('for i in 1..3 do Page := :i; end for;', cfg)).toBe(dedent`
+        FOR i IN 1..3 DO page := :i;
+
+        END FOR;
+      `);
+      expect(format("select * from t where a like 'x!%' escape ID", cfg)).toBe(dedent`
+        SELECT
+          *
+        FROM
+          t
+        WHERE
+          a LIKE 'x!%' ESCAPE id
+      `);
+    });
+
+    it('applies identifierCase to table names and aliases spelled like table options', () => {
+      const cfg = { keywordCase: 'upper', identifierCase: 'lower' } as const;
+      ['numa node', 'persistent memory', 'page loadable', 'preload none', 'load unit'].forEach(
+        names => {
+          const [table, alias] = names.split(' ');
+          expect(format(`select * from t join ${names.toUpperCase()} on ${alias}.id = t.id`, cfg))
+            .toBe(dedent`
+          SELECT
+            *
+          FROM
+            t
+            JOIN ${table} ${alias} ON ${alias}.id = t.id
+        `);
+        }
+      );
+    });
+
     it('applies keywordCase to table options and partitioning', () => {
       expect(
         format(
-          'create column table t (a INT generated always as identity, b NVARCHAR(10) page loadable) partition by range (a) (partition 1 <= values < 10 at location :loc, partition others dynamic threshold 2) no logging retention 3600;',
+          'create column table t (a INT generated always as identity, b NVARCHAR(10)) partition by range (a) (partition 1 <= values < 10 at location :loc, partition others dynamic threshold 2) no logging retention 3600;',
           { keywordCase: 'upper' }
         )
       ).toBe(dedent`
         CREATE COLUMN TABLE t (
           a INT GENERATED ALWAYS AS IDENTITY,
-          b NVARCHAR(10) PAGE LOADABLE
+          b NVARCHAR(10)
         )
         PARTITION BY
           RANGE (a) (
@@ -1172,21 +1249,17 @@ describe('HanaFormatter', () => {
       `);
       expect(
         format(
-          'alter table t preload all; alter table t preload none; alter table t persistent memory on; alter table t numa node (1); alter table t load unit column; create column table t (a INT) with schema flexibility;',
+          'alter table t preload all; alter table t load unit column; create column table t (a INT) with schema flexibility; alter table t disable schema flexibility;',
           { keywordCase: 'upper' }
         )
       ).toBe(dedent`
         ALTER TABLE t PRELOAD ALL;
 
-        ALTER TABLE t PRELOAD NONE;
-
-        ALTER TABLE t PERSISTENT MEMORY ON;
-
-        ALTER TABLE t NUMA NODE (1);
-
         ALTER TABLE t LOAD UNIT COLUMN;
 
         CREATE COLUMN TABLE t (a INT) WITH SCHEMA FLEXIBILITY;
+
+        ALTER TABLE t DISABLE SCHEMA FLEXIBILITY;
       `);
       expect(
         format(
@@ -1205,7 +1278,7 @@ describe('HanaFormatter', () => {
     it('applies keywordCase to sequences, time travel, sampling and SQLScript', () => {
       expect(
         format(
-          'create sequence s start with 1 reset by select MAX(a) + 1 from t; alter sequence s restart with 5; alter table t add system versioning history table h; select * from t as of commit id 5; select * from t tablesample bernoulli (10); call p() with overview;',
+          'create sequence s start with 1 reset by select MAX(a) + 1 from t; alter table t add system versioning history table h; select * from t as of commit id 5; select * from t tablesample bernoulli (10); call p() with overview;',
           { keywordCase: 'upper' }
         )
       ).toBe(dedent`
@@ -1214,8 +1287,6 @@ describe('HanaFormatter', () => {
           MAX(a) + 1
         FROM
           t;
-
-        ALTER SEQUENCE s RESTART WITH 5;
 
         ALTER TABLE t
         ADD SYSTEM VERSIONING HISTORY TABLE h;
@@ -1234,7 +1305,7 @@ describe('HanaFormatter', () => {
       `);
       expect(
         format(
-          'do begin declare c condition for sql_error_code 10001; declare exit handler for sql_error_code 301 select 1 from dummy; end;',
+          'do begin declare c condition for sql_error_code 10001; declare exit handler for sql_error_code 301 select 1 from dummy; declare continue handler for sql_error_code 302 call log_err(); end;',
           { keywordCase: 'upper' }
         )
       ).toBe(dedent`
@@ -1247,6 +1318,9 @@ describe('HanaFormatter', () => {
           1
         FROM
           dummy;
+
+        DECLARE CONTINUE HANDLER FOR SQL_ERROR_CODE 302
+        CALL log_err ();
 
         END;
       `);
@@ -1281,6 +1355,13 @@ describe('HanaFormatter', () => {
       'ALTER TABLE t PRELOAD NONE; ALTER TABLE t PERSISTENT MEMORY ON; ALTER TABLE t NUMA NODE (1);',
       'CREATE SEQUENCE s START WITH 1 RESET BY SELECT MAX(a) + 1 FROM t; ALTER SEQUENCE s RESTART WITH 5;',
       'DO BEGIN DECLARE c CONDITION FOR SQL_ERROR_CODE 10001; CALL p() WITH OVERVIEW; END;',
+      'SELECT t.id node FROM t JOIN unit node ON node.id = t.id;',
+      'SELECT SUM(a) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM t;',
+      'WHILE :c < 3 DO id := :id + 1; END WHILE; FOR i IN 1..3 DO page := :i; END FOR;',
+      "SELECT * FROM t WHERE a LIKE 'x!%' ESCAPE id;",
+      'WITH overview AS (SELECT 1 AS id FROM DUMMY) SELECT id FROM overview;',
+      'SELECT * FROM t JOIN numa node ON node.id = t.id JOIN page loadable ON loadable.id = t.id;',
+      'DO BEGIN DECLARE EXIT HANDLER FOR SQL_ERROR_CODE 301 CALL log_err(); OPEN c; END;',
     ];
 
     const configs = [

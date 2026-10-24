@@ -1,33 +1,3 @@
-// Non-reserved keywords of table options, partitioning, sequences, time travel and SQLScript
-// that are also common names (e.g. id, page, node). Where they are used as a name,
-// hana.formatter.ts converts them into identifiers.
-export const nameLikeKeywords: string[] = [
-  'ALWAYS',
-  'BERNOULLI',
-  'DYNAMIC',
-  'FLEXIBILITY',
-  'ID',
-  'INTERVAL',
-  'LOADABLE',
-  'LOCATION',
-  'MEMORY',
-  'NODE',
-  'NONE',
-  'NUMA',
-  'OVERVIEW',
-  'PAGE',
-  'PERSISTENT',
-  'PRELOAD',
-  'RESET',
-  'RESTART',
-  'RETENTION',
-  'SQL_ERROR_CODE',
-  'SUBPARTITION',
-  'THRESHOLD',
-  'UNIT',
-  'VERSIONING',
-];
-
 export const keywords: string[] = [
   // https://help.sap.com/docs/SAP_HANA_PLATFORM/4fe29514fd584807ac9f2a04f6754767/28bcd6af3eb6437892719f7c27a8a285.html
   // Reserved words (as listed by SELECT * FROM RESERVED_KEYWORDS),
@@ -308,7 +278,6 @@ export const keywords: string[] = [
   'VIRTUAL',
   'WAIT',
   'WORK',
-  ...nameLikeKeywords,
 ];
 
 export const dataTypes: string[] = [
