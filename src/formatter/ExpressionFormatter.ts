@@ -397,7 +397,7 @@ export default class ExpressionFormatter {
   private formatLineComment(node: LineCommentNode) {
     if (isMultiline(node.precedingWhitespace || '')) {
       this.layout.add(WS.NEWLINE, WS.INDENT, node.text, WS.MANDATORY_NEWLINE, WS.INDENT);
-    } else if (this.layout.getLayoutItems().length > 0) {
+    } else if (this.layout.hasContent()) {
       this.layout.add(WS.NO_NEWLINE, WS.SPACE, node.text, WS.MANDATORY_NEWLINE, WS.INDENT);
     } else {
       // comment is the first item in code - no need to add preceding spaces
@@ -536,6 +536,12 @@ export default class ExpressionFormatter {
       case TokenType.OR:
       case TokenType.XOR:
         return this.formatLogicalOperator(node);
+      case TokenType.BLOCK_START:
+        return this.formatBlockStart(node);
+      case TokenType.BLOCK_MIDDLE:
+        return this.formatBlockMiddle(node);
+      case TokenType.BLOCK_END:
+        return this.formatBlockEnd(node);
       default:
         return this.formatKeyword(node);
     }
@@ -550,6 +556,27 @@ export default class ExpressionFormatter {
     } else {
       this.layout.add(WS.NEWLINE, WS.INDENT, this.showKw(node), WS.SPACE);
     }
+  }
+
+  // BEGIN, THEN of IF ... THEN, etc. - the following statements start on a new line, indented
+  private formatBlockStart(node: KeywordNode) {
+    this.layout.add(this.showKw(node), WS.SPACE);
+    this.layout.indentation.increaseProcedureBlockLevel();
+    this.layout.add(WS.NEWLINE, WS.INDENT);
+  }
+
+  // ELSE of IF ... THEN ... ELSE - on its own line, at the level of the enclosing IF
+  private formatBlockMiddle(node: KeywordNode) {
+    this.layout.indentation.decreaseProcedureBlockLevel();
+    this.layout.add(WS.NEWLINE, WS.INDENT, this.showKw(node), WS.SPACE);
+    this.layout.indentation.increaseProcedureBlockLevel();
+    this.layout.add(WS.NEWLINE, WS.INDENT);
+  }
+
+  // END, ELSEIF - start a new line, at the level of the enclosing block
+  private formatBlockEnd(node: KeywordNode) {
+    this.layout.indentation.decreaseProcedureBlockLevel();
+    this.layout.add(WS.NEWLINE, WS.INDENT, this.showKw(node), WS.SPACE);
   }
 
   private formatKeyword(node: KeywordNode) {

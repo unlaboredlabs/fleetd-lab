@@ -10,14 +10,20 @@ const INDENT_TYPE_BLOCK_LEVEL = 'block-level';
  *
  * - BLOCK_LEVEL : increased by open-parenthesis
  * - TOP_LEVEL : increased by RESERVED_CLAUSE words
+ *
+ * Additionally there's the procedural block level,
+ * increased by BLOCK_START keywords (like BEGIN).
+ * Unlike the others, it's not confined to a single statement:
+ * the statements inside BEGIN ... END are all indented by it.
  */
 export default class Indentation {
   private indentTypes: string[] = [];
 
   /**
    * @param {string} indent A string to indent with
+   * @param {number} procedureBlockLevel Initial procedural block level
    */
-  constructor(private indent: string) {}
+  constructor(private indent: string, private procedureBlockLevel = 0) {}
 
   /**
    * Returns indentation string for single indentation step.
@@ -30,7 +36,28 @@ export default class Indentation {
    * Returns current indentation level
    */
   getLevel(): number {
-    return this.indentTypes.length;
+    return this.indentTypes.length + this.procedureBlockLevel;
+  }
+
+  /**
+   * Returns current procedural block level
+   */
+  getProcedureBlockLevel(): number {
+    return this.procedureBlockLevel;
+  }
+
+  /**
+   * Increases the procedural block level by one.
+   */
+  increaseProcedureBlockLevel() {
+    this.procedureBlockLevel++;
+  }
+
+  /**
+   * Decreases the procedural block level by one (but never below zero).
+   */
+  decreaseProcedureBlockLevel() {
+    this.procedureBlockLevel = Math.max(0, this.procedureBlockLevel - 1);
   }
 
   /**

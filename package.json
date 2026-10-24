@@ -41,6 +41,9 @@
     "prestosql",
     "snowflake",
     "duckdb",
+    "hana",
+    "sap hana",
+    "sqlscript",
     "clickhouse"
   ],
   "files": [
