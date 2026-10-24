@@ -1203,3 +1203,342 @@ sort_me_not = ["3", "2", "1"]
 
     assert_format!(expected, &formatted);
 }
+
+#[test]
+fn multiline_inline_table_unchanged() {
+    let expected = r#"server = {
+  host = "localhost", # where it listens
+  port = 8080,
+  tls = { cert = "a.pem", key = "a.key" },
+}
+"#;
+
+    let formatted = crate::formatter::format(expected, Default::default());
+
+    assert_format!(expected, &formatted);
+}
+
+#[test]
+fn multiline_inline_table_layout() {
+    let src = r#"
+server = {   host = "localhost"  ,
+        port = 8080 }
+single = { a = 1, b = 2, }
+empty = {
+}
+"#;
+
+    let expected = r#"
+server = {
+  host = "localhost",
+  port = 8080,
+}
+single = { a = 1, b = 2 }
+empty = {}
+"#;
+
+    let formatted = crate::formatter::format(src, Default::default());
+
+    assert_format!(expected, &formatted);
+}
+
+#[test]
+fn multiline_inline_table_stays_multiline() {
+    let expected = r#"
+a = {
+  b = 1,
+}
+"#;
+
+    let formatted = crate::formatter::format(
+        expected,
+        Options {
+            column_width: 1000,
+            ..Default::default()
+        },
+    );
+
+    assert_format!(expected, &formatted);
+}
+
+#[test]
+fn multiline_inline_table_trailing_comma() {
+    let src = r#"
+a = {
+  b = 1, c = [
+    1,
+  ],
+  d = { e = 1, f = 2, },
+}
+"#;
+
+    let with_comma = r#"
+a = {
+  b = 1,
+  c = [1],
+  d = { e = 1, f = 2 },
+}
+"#;
+
+    let without_comma = r#"
+a = {
+  b = 1,
+  c = [1],
+  d = { e = 1, f = 2 }
+}
+"#;
+
+    let formatted = crate::formatter::format(src, Default::default());
+    assert_format!(with_comma, &formatted);
+
+    let formatted = crate::formatter::format(
+        src,
+        Options {
+            array_trailing_comma: false,
+            ..Default::default()
+        },
+    );
+    assert_format!(without_comma, &formatted);
+}
+
+#[test]
+fn multiline_inline_table_nested() {
+    let src = r#"
+nested = { inner = {
+x = 1, y = [
+1, 2,
+] },
+other = { z = 1 } }
+single-line = { a = { b = 1,
+  c = 2 }, d = 1 }
+arr = [ { a = 1,
+b = 2 }, { c = 3 } ]
+"#;
+
+    let expected = r#"
+nested = {
+  inner = {
+    x = 1,
+    y = [1, 2],
+  },
+  other = { z = 1 },
+}
+single-line = {
+  a = {
+    b = 1,
+    c = 2,
+  },
+  d = 1,
+}
+arr = [
+  {
+    a = 1,
+    b = 2,
+  },
+  { c = 3 },
+]
+"#;
+
+    let formatted = crate::formatter::format(src, Default::default());
+
+    assert_format!(expected, &formatted);
+}
+
+#[test]
+fn multiline_inline_table_comments() {
+    let src = r#"
+trailing-comma-1 = {#comment
+	# comment
+	c = 1,#comment
+	#comment
+}#comment
+
+tbl = { # opening comment
+  # first
+  c = 1, # one
+  b = 22, # two
+
+
+  # standalone
+  a = [ 1, 2 ] # three
+  , z = 0 # after comma
+  , y = { k = """
+  """ }
+}
+"#;
+
+    let expected = r#"
+trailing-comma-1 = { #comment
+  # comment
+  c = 1, #comment
+  #comment
+} #comment
+
+tbl = { # opening comment
+  # first
+  c = 1,  # one
+  b = 22, # two
+
+
+  # standalone
+  a = [1, 2], # three
+  z = 0,      # after comma
+  y = { k = """
+  """ },
+}
+"#;
+
+    let formatted = crate::formatter::format(src, Default::default());
+    assert_format!(expected, &formatted);
+
+    let reordered = r#"
+trailing-comma-1 = { #comment
+  # comment
+  c = 1, #comment
+  #comment
+} #comment
+
+tbl = { # opening comment
+  # first
+  b = 22, # two
+  c = 1,  # one
+
+
+  # standalone
+  a = [1, 2], # three
+  y = { k = """
+  """ },
+  z = 0, # after comma
+}
+"#;
+
+    let formatted = crate::formatter::format(
+        src,
+        Options {
+            reorder_inline_tables: true,
+            ..Default::default()
+        },
+    );
+    assert_format!(reordered, &formatted);
+}
+
+#[test]
+fn multiline_inline_table_indentation() {
+    let src = r#"
+[table]
+a = 1
+
+[table.sub]
+x = {
+a = [ # comment
+    1,
+  ],
+	b = { c = {
+d = 1 } },
+}
+"#;
+
+    let expected = "
+[table]
+\ta = 1
+
+\t[table.sub]
+\t\tx = {
+\t\t\ta = [ # comment
+\t\t\t\t1,
+\t\t\t],
+\t\t\tb = {
+\t\t\t\tc = {
+\t\t\t\t\td = 1,
+\t\t\t\t},
+\t\t\t},
+\t\t}
+";
+
+    let formatted = crate::formatter::format(
+        src,
+        Options {
+            indent_entries: true,
+            indent_tables: true,
+            indent_string: "\t".into(),
+            ..Default::default()
+        },
+    );
+
+    assert_format!(expected, &formatted);
+}
+
+#[test]
+fn array_comment_after_comma_on_next_line() {
+    let src = r#"
+arr4 = [ 1,# 9, 9,
+2#,9
+,#9
+3#]
+,4]
+"#;
+
+    let expected = r#"
+arr4 = [
+  1, # 9, 9,
+  2, #,9
+  #9
+  3, #]
+  4,
+]
+"#;
+
+    let formatted = crate::formatter::format(src, Default::default());
+
+    assert_format!(expected, &formatted);
+}
+
+#[test]
+fn removed_blank_lines_do_not_separate_groups() {
+    let src = r#"
+[a]
+b = 1
+
+a = 2
+# comment
+
+[a.b]
+"#;
+
+    let expected = r#"
+[a]
+a = 2
+b = 1
+  # comment
+  [a.b]
+"#;
+
+    let options = Options {
+        reorder_keys: true,
+        indent_tables: true,
+        allowed_blank_lines: 0,
+        ..Default::default()
+    };
+
+    let formatted = crate::formatter::format(src, options.clone());
+    assert_format!(expected, &formatted);
+
+    let formatted = crate::formatter::format(&formatted, options);
+    assert_format!(expected, &formatted);
+}
+
+#[test]
+fn no_trailing_newline_after_blank_lines() {
+    let src = "a = 1\n\n\n";
+
+    let options = Options {
+        trailing_newline: false,
+        ..Default::default()
+    };
+
+    let formatted = crate::formatter::format(src, options.clone());
+    assert_format!("a = 1", &formatted);
+
+    let formatted = crate::formatter::format("a = 1\r\n\r\n", options);
+    assert_format!("a = 1", &formatted);
+}

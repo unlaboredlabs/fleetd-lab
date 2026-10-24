@@ -99,6 +99,24 @@ pub enum SyntaxKind {
     ROOT, // root node
 }
 
+impl SyntaxKind {
+    /// Creates the plain [`Logos`] lexer of the tokens.
+    ///
+    /// **This lexer does not produce date and time tokens**
+    /// ([`DATE_TIME_OFFSET`](SyntaxKind::DATE_TIME_OFFSET),
+    /// [`DATE_TIME_LOCAL`](SyntaxKind::DATE_TIME_LOCAL),
+    /// [`DATE`](SyntaxKind::DATE) and [`TIME`](SyntaxKind::TIME)),
+    /// date and time values are split into other tokens instead.
+    ///
+    /// Use [`Lexer`] to lex TOML documents, it is also what the parser uses.
+    #[deprecated(
+        note = "does not produce date and time tokens, use `taplo::syntax::Lexer::new` instead"
+    )]
+    pub fn lexer(source: &str) -> LogosLexer<'_, SyntaxKind> {
+        <SyntaxKind as Logos>::lexer(source)
+    }
+}
+
 impl From<SyntaxKind> for rowan::SyntaxKind {
     fn from(kind: SyntaxKind) -> Self {
         Self(kind as u16)
@@ -138,7 +156,7 @@ pub struct Lexer<'s> {
 impl<'s> Lexer<'s> {
     pub fn new(source: &'s str) -> Self {
         Self {
-            inner: SyntaxKind::lexer(source),
+            inner: <SyntaxKind as Logos>::lexer(source),
             span: 0..0,
         }
     }
