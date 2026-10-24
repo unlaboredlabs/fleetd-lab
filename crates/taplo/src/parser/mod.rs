@@ -567,10 +567,18 @@ impl<'p> Parser<'p> {
                 }
             }
             FLOAT => {
-                if self.lexer.slice().starts_with('0') {
-                    self.error("zero-padded numbers are not allowed")
-                } else if self.lexer.slice().starts_with('+') {
+                // Numeric bare keys such as `01.23` or `1e3` are lexed as floats,
+                // every part between the periods must be a valid bare key.
+                let is_bare_key = |s: &str| {
+                    !s.is_empty()
+                        && s.chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+                };
+
+                if self.lexer.slice().starts_with('+') {
                     Err(())
+                } else if !self.lexer.slice().split('.').all(is_bare_key) {
+                    self.error("expected identifier")
                 } else {
                     for (i, s) in self.lexer.slice().split('.').enumerate() {
                         if i != 0 {
