@@ -312,9 +312,15 @@ fn format_inline_table_with_comments() {
 
     let formatted = formatter::format(src, Default::default());
 
-    // Comments inside inline tables are not formatted yet,
-    // but they must be preserved.
-    assert_eq!(formatted, src);
+    // Multi-line inline tables are laid out like multi-line arrays,
+    // and the comments are preserved.
+    let expected = r#"tbl = { # start
+  a = 1, # after a
+  # own line
+  b = 2, # after b
+}
+"#;
+    assert_eq!(formatted, expected);
     assert_eq!(formatter::format(&formatted, Default::default()), formatted);
 }
 
@@ -325,5 +331,11 @@ fn format_inline_table_nested_comments() {
 "#;
 
     let formatted = formatter::format(src, Default::default());
-    assert_eq!(formatted, src);
+
+    // The outer table is single-line, only the inner one is multi-line.
+    let expected = r#"a = { b = 1, c = {
+  d = 2, # d
+} }
+"#;
+    assert_eq!(formatted, expected);
 }
