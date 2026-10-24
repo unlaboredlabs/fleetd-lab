@@ -567,10 +567,16 @@ impl<'p> Parser<'p> {
                 }
             }
             FLOAT => {
-                if self.lexer.slice().starts_with('0') {
-                    self.error("zero-padded numbers are not allowed")
-                } else if self.lexer.slice().starts_with('+') {
-                    Err(())
+                // Dotted keys made of digits, e.g. `1.2 = true` or `01.23 = true`.
+                let is_dotted_key = self.lexer.slice().split('.').all(|part| {
+                    !part.is_empty()
+                        && part
+                            .chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+                });
+
+                if !is_dotted_key {
+                    self.error("expected identifier")
                 } else {
                     for (i, s) in self.lexer.slice().split('.').enumerate() {
                         if i != 0 {
@@ -596,17 +602,18 @@ impl<'p> Parser<'p> {
         };
 
         match t {
-            BOOL | DATE_TIME_OFFSET | DATE_TIME_LOCAL | DATE | TIME => self.token(),
+            BOOL => self.token(),
+            DATE_TIME_OFFSET | DATE_TIME_LOCAL | DATE | TIME => self.date_time_token(t),
             INTEGER => {
                 // This is probably a logos bug or a priority issue,
                 // for some reason "1979-05-27" gets lexed as INTEGER.
                 if !self.lexer.slice().starts_with('-') && self.lexer.slice().contains('-') {
-                    return self.token_as(DATE);
+                    return self.date_time_token(DATE);
                 }
 
                 // FIXME: probably another logos bug.
                 if self.lexer.slice().contains(':') {
-                    return self.token_as(TIME);
+                    return self.date_time_token(TIME);
                 }
 
                 // This could've been done more elegantly probably.
@@ -645,7 +652,7 @@ impl<'p> Parser<'p> {
             FLOAT => {
                 // FIXME: probably another logos bug.
                 if self.lexer.slice().contains(':') {
-                    return self.token_as(TIME);
+                    return self.date_time_token(TIME);
                 }
 
                 let int_slice = if self.lexer.slice().contains('.') {
@@ -784,6 +791,19 @@ impl<'p> Parser<'p> {
             }
             _ => self.error("expected value"),
         }
+    }
+
+    /// Validate a date or time token and add it as the given kind.
+    fn date_time_token(&mut self, kind: SyntaxKind) -> ParserResult<()> {
+        if dom::node::DateTimeValue::from_token(kind, self.lexer.slice()).is_none() {
+            return self.error(match kind {
+                DATE => "invalid date",
+                TIME => "invalid time",
+                _ => "invalid date-time",
+            });
+        }
+
+        self.token_as(kind)
     }
 
     fn parse_inline_table(&mut self) -> ParserResult<()> {

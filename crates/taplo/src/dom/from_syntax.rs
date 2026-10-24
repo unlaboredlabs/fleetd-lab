@@ -13,6 +13,7 @@ use crate::{
     util::{iter::ExactIterExt, shared::Shared},
 };
 use either::Either;
+use std::sync::atomic::Ordering;
 
 pub trait FromSyntax: Sized + Sealed {
     fn from_syntax(syntax: SyntaxElement) -> Self;
@@ -57,6 +58,7 @@ impl FromSyntax for Table {
                 header: true,
                 kind: TableKind::Regular,
                 entries: Default::default(),
+                defined_by_header: Default::default(),
             }
             .wrap(),
             INLINE_TABLE => {
@@ -66,6 +68,7 @@ impl FromSyntax for Table {
                     syntax: Some(syntax.clone()),
                     kind: TableKind::Inline,
                     entries: Default::default(),
+                    defined_by_header: Default::default(),
                 }
                 .wrap();
 
@@ -91,6 +94,7 @@ impl FromSyntax for Table {
                     syntax: Some(syntax),
                     kind: TableKind::Regular,
                     entries: Default::default(),
+                    defined_by_header: Default::default(),
                 }
                 .into()
             }
@@ -106,6 +110,7 @@ impl Table {
             header,
             kind: TableKind::Pseudo,
             entries: Default::default(),
+            defined_by_header: Default::default(),
         }
         .wrap()
     }
@@ -470,6 +475,7 @@ fn root_from_syntax(syntax: SyntaxElement) -> Table {
                 header: false,
                 kind: TableKind::Regular,
                 entries: Default::default(),
+                defined_by_header: Default::default(),
             }
             .into()
         }
@@ -481,6 +487,7 @@ fn root_from_syntax(syntax: SyntaxElement) -> Table {
         header: false,
         kind: TableKind::Regular,
         entries: Default::default(),
+        defined_by_header: Default::default(),
     }
     .wrap();
 
@@ -511,7 +518,12 @@ fn root_from_syntax(syntax: SyntaxElement) -> Table {
                                                 .update(|s| s.push(syntax.clone()));
                                         }
 
-                                        if t.inner.kind != TableKind::Pseudo || !t.inner.header {
+                                        let implicit_header_table =
+                                            t.inner.kind == TableKind::Pseudo && t.inner.header;
+
+                                        if !implicit_header_table
+                                            || t.inner.defined_by_header.swap(true, Ordering::Relaxed)
+                                        {
                                             t.inner.errors.update(|errors| {
                                                 errors.push(Error::ConflictingKeys {
                                                     key: key.clone(),
