@@ -1203,3 +1203,438 @@ sort_me_not = ["3", "2", "1"]
 
     assert_format!(expected, &formatted);
 }
+
+/// Formats the source and checks that formatting the result again changes nothing.
+fn format_twice(src: &str, options: Options) -> String {
+    let formatted = crate::formatter::format(src, options.clone());
+    let formatted_again = crate::formatter::format(&formatted, options);
+    assert_format!(&formatted, &formatted_again);
+    formatted
+}
+
+#[test]
+fn multiline_inline_table_unchanged() {
+    let src = r#"server = {
+  host = "localhost", # where it listens
+  port = 8080,
+  tls = { cert = "a.pem", key = "a.key" },
+}
+"#;
+
+    let formatted = format_twice(src, Options::default());
+    assert_format!(src, &formatted);
+}
+
+#[test]
+fn multiline_inline_table_layout() {
+    let src = r#"a = {   x=1,y = 2 ,
+      z={a=1,},  w = [1,
+2],
+
+
+
+
+  v = "s"   }
+"#;
+
+    let expected = r#"a = {
+  x = 1,
+  y = 2,
+  z = { a = 1 },
+  w = [1, 2],
+
+
+  v = "s",
+}
+"#;
+
+    let formatted = format_twice(src, Options::default());
+    assert_format!(expected, &formatted);
+}
+
+#[test]
+fn multiline_inline_table_comments_around_commas() {
+    let src = r#"a = {
+  b = 1 # before comma
+  , c = 2, # after comma
+  d = 3 # before comma
+  , # after comma
+  e = 4
+}
+"#;
+
+    let expected = r#"a = {
+  b = 1, # before comma
+  c = 2, # after comma
+  d = 3, # before comma
+  # after comma
+  e = 4,
+}
+"#;
+
+    let formatted = format_twice(src, Options::default());
+    assert_format!(expected, &formatted);
+}
+
+#[test]
+fn multiline_inline_table_comment_after_brace() {
+    let src = r#"a = {     # start
+b = 1 }
+c = {
+  # own line
+  d = 1 }
+"#;
+
+    let expected = r#"a = { # start
+  b = 1,
+}
+c = {
+  # own line
+  d = 1,
+}
+"#;
+
+    let formatted = format_twice(src, Options::default());
+    assert_format!(expected, &formatted);
+}
+
+#[test]
+fn multiline_inline_table_empty_with_comments() {
+    let src = r#"a = {
+# only a comment
+}
+b = { # after brace
+}
+c = {   # after brace
+      # own line
+    }
+"#;
+
+    let expected = r#"a = {
+  # only a comment
+}
+b = { # after brace
+}
+c = { # after brace
+  # own line
+}
+"#;
+
+    let formatted = format_twice(src, Options::default());
+    assert_format!(expected, &formatted);
+}
+
+#[test]
+fn multiline_inline_table_trailing_comma() {
+    let src = r#"a = {
+  b = 1,
+  c = 2, # comment
+}
+d = {
+  e = 1,
+  f = 2
+}
+"#;
+
+    let with_comma = r#"a = {
+  b = 1,
+  c = 2, # comment
+}
+d = {
+  e = 1,
+  f = 2,
+}
+"#;
+
+    let without_comma = r#"a = {
+  b = 1,
+  c = 2 # comment
+}
+d = {
+  e = 1,
+  f = 2
+}
+"#;
+
+    let formatted = format_twice(src, Options::default());
+    assert_format!(with_comma, &formatted);
+
+    let formatted = format_twice(
+        src,
+        Options {
+            array_trailing_comma: false,
+            ..Default::default()
+        },
+    );
+    assert_format!(without_comma, &formatted);
+}
+
+#[test]
+fn multiline_inline_table_nested() {
+    let src = r#"a = [
+  # first
+  { b = 1,
+  c = 2 },
+  { d = 3 }, # single-line
+]
+t = { u = {
+  # inner
+  v = 1
+}, w = 2,
+}
+[table]
+x = { y = [
+1, # one
+2], z = {
+k = 1 } }
+"#;
+
+    let expected = r#"a = [
+  # first
+  {
+    b = 1,
+    c = 2,
+  },
+  { d = 3 }, # single-line
+]
+t = {
+  u = {
+    # inner
+    v = 1,
+  },
+  w = 2,
+}
+[table]
+x = { y = [
+  1, # one
+  2,
+], z = {
+  k = 1,
+} }
+"#;
+
+    let formatted = format_twice(src, Options::default());
+    assert_format!(expected, &formatted);
+}
+
+#[test]
+fn multiline_inline_table_indent_entries() {
+    let src = r#"[table]
+a = {
+b = 1, # comment
+c = { d = [
+1,
+2,
+], e = {
+f = 1 } } }
+"#;
+
+    let expected = r#"[table]
+  a = {
+    b = 1, # comment
+    c = { d = [1, 2], e = {
+      f = 1,
+    } },
+  }
+"#;
+
+    let formatted = format_twice(
+        src,
+        Options {
+            indent_entries: true,
+            ..Default::default()
+        },
+    );
+    assert_format!(expected, &formatted);
+}
+
+#[test]
+fn multiline_inline_table_crlf() {
+    let src = "a = { # start\n  b = 1, # comment\n\n\n\n  c = { d = 1 }\n}\n";
+
+    let expected = "a = { # start\r\n  b = 1, # comment\r\n\r\n\r\n  c = { d = 1 },\r\n}\r\n";
+
+    let formatted = format_twice(
+        src,
+        Options {
+            crlf: true,
+            ..Default::default()
+        },
+    );
+    assert_format!(expected, &formatted);
+}
+
+#[test]
+fn multiline_inline_table_align_comments() {
+    let src = r#"a = {
+  b = 1, # b
+  cccccc = 2, # c
+  long_entry_without_comment = 3,
+  d = 4, # d
+  # separator
+  e = 5, # e
+}
+"#;
+
+    let aligned = r#"a = {
+  b = 1,      # b
+  cccccc = 2, # c
+  long_entry_without_comment = 3,
+  d = 4,      # d
+  # separator
+  e = 5, # e
+}
+"#;
+
+    let formatted = format_twice(src, Options::default());
+    assert_format!(aligned, &formatted);
+
+    let formatted = format_twice(
+        src,
+        Options {
+            align_comments: false,
+            ..Default::default()
+        },
+    );
+    assert_format!(src, &formatted);
+
+    // `=` is not aligned inside inline tables.
+    let formatted = format_twice(
+        src,
+        Options {
+            align_entries: true,
+            ..Default::default()
+        },
+    );
+    assert_format!(aligned, &formatted);
+}
+
+#[test]
+fn multiline_inline_table_reorder() {
+    let src = r#"a = {
+  d = 1,
+  c = 2, # c
+  # separator
+  b = 3,
+  a = 4,
+
+  z = 5,
+  y = 6,
+}
+"#;
+
+    let expected = r#"a = {
+  c = 2, # c
+  d = 1,
+  # separator
+  a = 4,
+  b = 3,
+
+  y = 6,
+  z = 5,
+}
+"#;
+
+    for options in [
+        Options {
+            reorder_inline_tables: true,
+            ..Default::default()
+        },
+        Options {
+            reorder_keys: true,
+            ..Default::default()
+        },
+    ] {
+        let formatted = format_twice(src, options);
+        assert_format!(expected, &formatted);
+    }
+}
+
+#[test]
+fn single_line_inline_table_stays_single_line() {
+    let src = r#"a = {b = 1,}
+c = { d = "a long value", e = "another long value", f = "yet another long value" }
+"#;
+
+    let expected = r#"a = { b = 1 }
+c = { d = "a long value", e = "another long value", f = "yet another long value" }
+"#;
+
+    let formatted = format_twice(src, Options::default());
+    assert_format!(expected, &formatted);
+}
+
+#[test]
+fn inline_table_with_multiline_array_unchanged() {
+    // Valid TOML 1.0, the inline table itself is not multi-line.
+    let src = r#"a = { b = [
+1] }
+"#;
+
+    let expected = r#"a = { b = [1] }
+"#;
+
+    let formatted = format_twice(src, Options::default());
+    assert_format!(expected, &formatted);
+}
+
+#[test]
+fn array_comment_before_and_after_comma() {
+    let src = r#"a = [
+  1 # before comma
+  , # after comma
+  2,
+]
+"#;
+
+    let expected = r#"a = [
+  1, # before comma
+  # after comma
+  2,
+]
+"#;
+
+    let formatted = format_twice(src, Options::default());
+    assert_format!(expected, &formatted);
+}
+
+#[test]
+fn no_trailing_newline_with_trailing_blank_lines() {
+    let src = "a = 1\n\n\n";
+
+    let formatted = format_twice(
+        src,
+        Options {
+            trailing_newline: false,
+            ..Default::default()
+        },
+    );
+    assert_format!("a = 1", &formatted);
+}
+
+#[test]
+fn reorder_keys_without_blank_lines() {
+    let src = r#"b = 1
+a = 2
+
+d = 3 # d
+c = 4
+"#;
+
+    // The removed blank line no longer separates the entries.
+    let expected = r#"a = 2
+b = 1
+c = 4
+d = 3 # d
+"#;
+
+    let formatted = format_twice(
+        src,
+        Options {
+            reorder_keys: true,
+            allowed_blank_lines: 0,
+            ..Default::default()
+        },
+    );
+    assert_format!(expected, &formatted);
+}
