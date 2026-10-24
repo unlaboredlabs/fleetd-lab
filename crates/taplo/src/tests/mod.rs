@@ -5,6 +5,7 @@ mod generated {
 }
 
 mod formatter;
+mod formatter_round_trip;
 
 #[test]
 fn time_in_arrays() {

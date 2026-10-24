@@ -1,0 +1,5 @@
+crlf = {
+  a = 1, # one
+  b = 2,
+}
+next = 1

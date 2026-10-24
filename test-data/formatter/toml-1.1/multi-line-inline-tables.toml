@@ -1,0 +1,84 @@
+server = {
+  host = "localhost", # where it listens
+  port = 8080,
+  tls = { cert = "a.pem", key = "a.key" },
+}
+
+badly-indented = {   host = "localhost"  ,
+        port = 8080 }
+
+no-trailing-comma = {
+    a = 1,
+    b = 2
+}
+
+trailing-comma-single-line = { a = 1, b = 2, }
+empty = {
+}
+empty-with-comment = { # nothing here
+}
+
+nested = { inner = {
+x = 1, y = [
+1, 2,
+] },
+other = { z = 1 } }
+
+single-line-with-nested = { a = { b = 1,
+  c = 2 }, d = 1 }
+
+in-arrays = [ { a = 1,
+b = 2 }, { c = 3 } ]
+
+in-arrays-in-tables = { a = [ {
+ b = 1 } ] }
+
+long = {
+  a = "a long value that does not fit into a narrow column ......................",
+  b = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
+  c = { d = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19] },
+}
+
+dotted = {
+  a.b = 1,
+  a.c = 2,
+  "quoted key" = 3,
+}
+
+strings = {
+  multi = """
+  line
+  """,
+  literal = '''
+x''',
+}
+
+[table]
+name = { # opening comment
+  # first
+  c = 1, # one
+  b = 22, # two
+
+
+  # standalone
+  a = 3 # three
+  , z = 0 # after comma
+}
+
+[table.sub]
+x = {
+	tab = "indented",
+
+	after-blank = 1,
+} # after the table
+y = 1
+
+[[array]]
+t = {
+  # only a comment
+}
+
+[[array]]
+t = { a = [ # comment in an array
+  1,
+], b = 1 }

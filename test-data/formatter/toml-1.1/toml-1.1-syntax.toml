@@ -1,0 +1,7 @@
+# Other TOML 1.1 additions next to inline tables.
+time = 07:32
+local = 1979-05-27T07:32
+offset = 1979-05-27 07:32Z
+escapes = "\e[0m \x41 é"
+table = { time = 07:32, date = 1979-05-27, escape = "\x00",
+  list = [07:32, 1979-05-27T00:00], }
