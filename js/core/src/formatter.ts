@@ -12,7 +12,7 @@ export interface FormatterOptions {
    */
   alignComments?: boolean;
   /**
-   * Append trailing commas for multi-line arrays.
+   * Append trailing commas for multi-line arrays and multi-line inline tables.
    */
   arrayTrailingComma?: boolean;
   /**

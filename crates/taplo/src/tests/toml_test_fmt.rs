@@ -4,7 +4,7 @@
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use crate::{
-    dom::{node::DomNode, Node},
+    dom::Node,
     formatter::{self, Options},
     parser::parse,
     syntax::SyntaxKind::COMMENT,
