@@ -649,18 +649,33 @@ impl DateTime {
                             *b = b'T';
                         } else if *b == b'z' {
                             *b = b'Z';
-                        } else if *b == b',' {
-                            *b = b'.';
                         }
                     }
                 }
 
+                // Seconds are optional since TOML 1.1, the parsers below require them.
+                match token.kind() {
+                    SyntaxKind::DATE_TIME_OFFSET | SyntaxKind::DATE_TIME_LOCAL => {
+                        insert_missing_seconds(&mut text, "YYYY-MM-DDT".len());
+                    }
+                    SyntaxKind::TIME => insert_missing_seconds(&mut text, 0),
+                    _ => {}
+                }
+
                 match token.kind() {
                     SyntaxKind::DATE_TIME_OFFSET => {
-                        if let Ok(d) = time::OffsetDateTime::parse(
-                            &text,
-                            &time::format_description::well_known::Rfc3339,
-                        ) {
+                        // The RFC 3339 parser of `time` rejects some valid fractional seconds
+                        // (e.g. `00:32:00.5-07:00`), so an explicit format is used.
+                        if text.ends_with('Z') {
+                            text.pop();
+                            text.push_str("+00:00");
+                        }
+
+                        let desc = format_description!(
+                            "[year]-[month]-[day]T[hour]:[minute]:[second][optional [.[subsecond]]][offset_hour sign:mandatory]:[offset_minute]"
+                        );
+
+                        if let Ok(d) = time::OffsetDateTime::parse(&text, &desc) {
                             return DateTimeValue::OffsetDateTime(d);
                         }
                     }
@@ -711,6 +726,15 @@ impl DateTime {
         } else {
             Err(self.errors())
         }
+    }
+}
+
+/// Inserts `:00` after the `HH:MM` part of a time starting at `time_start`
+/// if it has no seconds.
+fn insert_missing_seconds(text: &mut String, time_start: usize) {
+    let seconds_start = time_start + "HH:MM".len();
+    if text.len() >= seconds_start && text.as_bytes().get(seconds_start) != Some(&b':') {
+        text.insert_str(seconds_start, ":00");
     }
 }
 
