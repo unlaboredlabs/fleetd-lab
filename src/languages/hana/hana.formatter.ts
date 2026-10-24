@@ -19,6 +19,7 @@ const reservedClauses = expandPhrases([
   'ORDER BY',
   'LIMIT',
   'OFFSET',
+  'FETCH {FIRST | NEXT}',
   'FOR UPDATE [OF]',
   'FOR SHARE LOCK',
   'INTO',
@@ -264,8 +265,60 @@ function postProcess(tokens: Token[]): Token[] {
   return disambiguateClauses(mergeSelectTop(splitRangeOperators(tokens)));
 }
 
-// Clauses that are only recognized at the start of a (SQLScript) statement
-const statementStartClauses = ['DO', 'FOR', 'LOOP'];
+// Clauses that are only recognized at the start of a (SQLScript) statement.
+// Elsewhere these words are plain identifiers (e.g. column names) or keywords.
+const statementStartClauses = [
+  'DO',
+  'DECLARE',
+  'IF',
+  'ELSEIF',
+  'WHILE',
+  'FOR',
+  'LOOP',
+  'BREAK',
+  'CONTINUE',
+  'RETURN',
+  'SIGNAL',
+  'RESIGNAL',
+  'EXEC',
+  'OPEN',
+  'FETCH',
+  'CLOSE',
+  'CALL',
+  'ANNOTATE',
+  'BACKUP',
+  'COMMIT',
+  'CONNECT',
+  'EXPORT',
+  'IMPORT',
+  'LOAD',
+  'SAVEPOINT',
+  'UNLOAD',
+];
+
+// Statement words that HANA reserves, so elsewhere they can only be keywords, not column names
+const reservedStatementWords = [
+  'DECLARE',
+  'IF',
+  'ELSEIF',
+  'WHILE',
+  'FOR',
+  'LOOP',
+  'RETURN',
+  'EXEC',
+  'CONNECT',
+];
+
+// Clauses that are only recognized in the header of a procedure or function
+const routineHeaderClauses = [
+  'LANGUAGE',
+  'SQL SECURITY',
+  'DEFAULT SCHEMA',
+  'READS SQL DATA',
+  'RETURNS',
+];
+const isRoutineStatement = (statement: Token): boolean =>
+  /^(CREATE|ALTER)( OR REPLACE| VIRTUAL)? (PROCEDURE|FUNCTION)$/.test(statement.text);
 
 // Clauses that are only recognized inside ALTER TABLE
 const alterTableClauses = ['ADD', 'DROP', 'ALTER'];
@@ -277,11 +330,28 @@ const alterTableClauses = ['ADD', 'DROP', 'ALTER'];
 function disambiguateClauses(tokens: Token[]): Token[] {
   // The first clause of the current statement
   let statement: Token | undefined;
+  // Parenthesis nesting depth, and the depth at which the current statement started
+  let depth = 0;
+  let statementDepth = 0;
+  // Nesting depth of CASE expressions
+  let caseDepth = 0;
 
-  return tokens.map((token, i) => {
+  return tokens.flatMap((token, i): Token | Token[] => {
     const prev = prevToken(tokens, i);
-    if (isStatementStart(prev)) {
+    if (isStatementStart(prev, caseDepth > 0)) {
       statement = undefined;
+    }
+    if (token.type === TokenType.CASE) {
+      caseDepth++;
+    } else if (token.type === TokenType.END && caseDepth > 0) {
+      caseDepth--;
+    } else if (token.type === TokenType.DELIMITER) {
+      caseDepth = 0;
+    }
+    if (token.type === TokenType.OPEN_PAREN) {
+      depth++;
+    } else if (token.type === TokenType.CLOSE_PAREN) {
+      depth--;
     }
     // SQLScript array element access, e.g. :arr[1]
     if (token.type === TokenType.NAMED_PARAMETER && nextToken(tokens, i).text === '[') {
@@ -298,7 +368,10 @@ function disambiguateClauses(tokens: Token[]): Token[] {
     if (token.type !== TokenType.RESERVED_CLAUSE && token.type !== TokenType.RESERVED_SELECT) {
       return token;
     }
-    statement = statement ?? token;
+    if (!statement) {
+      statement = token;
+      statementDepth = depth;
+    }
 
     // privilege names in GRANT and REVOKE statements, e.g. GRANT SELECT, INSERT, UPDATE ON ...
     if (statement !== token && (statement.text === 'GRANT' || statement.text === 'REVOKE')) {
@@ -324,11 +397,22 @@ function disambiguateClauses(tokens: Token[]): Token[] {
         (prev.type === TokenType.OR || ['BEFORE', 'AFTER', 'OF'].includes(prev.text))) ||
       // range partitions, e.g. PARTITION 1 <= VALUES < 10
       (token.text === 'VALUES' && prev.type === TokenType.OPERATOR) ||
-      // loops like WHILE ... DO and FOR ... DO
-      (statementStartClauses.includes(token.text) && statement !== token) ||
       (alterTableClauses.includes(token.text) && !/^ALTER (VIRTUAL )?TABLE$/.test(statement.text))
     ) {
       return toKeyword(token);
+    }
+    // column names followed by a clause, e.g. SELECT import FROM t
+    if (/^(IMPORT|EXPORT) (FROM|INTO)$/.test(token.text) && statement !== token) {
+      const [word, clause] = splitClause(token);
+      return [toKeywordOrIdentifier(word, prev, clause, statement), clause];
+    }
+    if (
+      // column names like language, open or load, and loops like WHILE ... DO and FOR ... DO
+      (statementStartClauses.includes(token.text) && statement !== token) ||
+      (routineHeaderClauses.includes(token.text) &&
+        !(isRoutineStatement(statement) && depth === statementDepth))
+    ) {
+      return toKeywordOrIdentifier(token, prev, next, statement);
     }
     return token;
   });
@@ -336,17 +420,105 @@ function disambiguateClauses(tokens: Token[]): Token[] {
 
 const toKeyword = (token: Token): Token => ({ ...token, type: TokenType.RESERVED_KEYWORD });
 
+// Converts a clause token that doesn't start a clause into an identifier where it is
+// a column name (or other expression), and into a keyword where it is part of the syntax
+const toKeywordOrIdentifier = (
+  token: Token,
+  prev: Token,
+  next: Token,
+  statement: Token | undefined
+): Token => {
+  if (reservedClauses.includes(token.text)) {
+    return token;
+  }
+  if (
+    reservedStatementWords.includes(token.text) ||
+    // multi-word clauses, e.g. SQL SECURITY
+    token.text.includes(' ') ||
+    // loops like WHILE ... DO and FOR ... DO
+    (token.text === 'DO' && /^(WHILE|FOR)$/.test(statement?.text ?? '')) ||
+    // e.g. ALTER SYSTEM SAVEPOINT
+    (prev.type === TokenType.RESERVED_CLAUSE && prev.text === 'ALTER SYSTEM')
+  ) {
+    return toKeyword(token);
+  }
+  if (isBeforeExpression(prev) || isAfterExpression(next)) {
+    return { ...token, type: TokenType.IDENTIFIER, text: token.raw };
+  }
+  // e.g. UNLOAD PRIORITY 5, AS OF COMMIT ID 5
+  return toKeyword(token);
+};
+
+// True when the token can be followed by a column name or other expression
+const isBeforeExpression = (prev: Token): boolean =>
+  [
+    TokenType.RESERVED_SELECT,
+    TokenType.COMMA,
+    TokenType.OPEN_PAREN,
+    TokenType.PROPERTY_ACCESS_OPERATOR,
+    TokenType.OPERATOR,
+    TokenType.ASTERISK,
+    TokenType.CASE,
+    TokenType.WHEN,
+    TokenType.THEN,
+    TokenType.ELSE,
+    TokenType.AND,
+    TokenType.OR,
+    TokenType.XOR,
+    TokenType.BETWEEN,
+  ].includes(prev.type);
+
+// True when the token can follow a column name or other expression
+const isAfterExpression = (next: Token): boolean =>
+  [
+    TokenType.COMMA,
+    TokenType.CLOSE_PAREN,
+    TokenType.DELIMITER,
+    TokenType.EOF,
+    TokenType.PROPERTY_ACCESS_OPERATOR,
+    TokenType.OPERATOR,
+    TokenType.ASTERISK,
+    TokenType.RESERVED_CLAUSE,
+    TokenType.RESERVED_SELECT,
+    TokenType.RESERVED_SET_OPERATION,
+    TokenType.RESERVED_JOIN,
+    TokenType.RESERVED_DATA_TYPE,
+    TokenType.END,
+    TokenType.WHEN,
+    TokenType.THEN,
+    TokenType.ELSE,
+    TokenType.AND,
+    TokenType.OR,
+    TokenType.XOR,
+    TokenType.BETWEEN,
+    TokenType.LIMIT,
+  ].includes(next.type) ||
+  (next.type === TokenType.RESERVED_KEYWORD &&
+    ['AS', 'IS', 'IN', 'NOT', 'LIKE', 'ASC', 'DESC', 'NULLS'].includes(next.text));
+
+// Splits a two-word clause token like IMPORT FROM into two clause tokens
+function splitClause(token: Token): Token[] {
+  const [, first, space, second] = token.raw.match(/^(\S+)(\s+)(\S+)$/) ?? [];
+  const [firstText, secondText] = token.text.split(' ');
+  return [
+    { ...token, raw: first, text: firstText },
+    { ...token, raw: second, text: secondText, start: token.start + first.length + space.length },
+  ];
+}
+
 const isTriggerEvent = (token: Token): boolean =>
   (token.type === TokenType.RESERVED_CLAUSE || token.type === TokenType.RESERVED_KEYWORD) &&
   ['INSERT', 'UPDATE', 'DELETE'].includes(token.text);
 
-// True when the token preceding a statement is the end of previous statement or block opener
-const isStatementStart = (prev: Token): boolean =>
+// True when the token preceding a statement is the end of previous statement or block opener.
+// THEN and ELSE only open a block in SQLScript IF statements, not inside CASE expressions.
+const isStatementStart = (prev: Token, inCase: boolean): boolean =>
   prev.type === TokenType.EOF ||
   prev.type === TokenType.DELIMITER ||
-  prev.type === TokenType.THEN ||
-  prev.type === TokenType.ELSE ||
-  (prev.type === TokenType.RESERVED_CLAUSE && /^(BEGIN|DO)\b/.test(prev.text));
+  (!inCase && (prev.type === TokenType.THEN || prev.type === TokenType.ELSE)) ||
+  (prev.type === TokenType.RESERVED_CLAUSE && /^(BEGIN|DO|LOOP)\b/.test(prev.text)) ||
+  // the condition of DECLARE ... HANDLER FOR <condition> <statement>
+  (prev.type === TokenType.RESERVED_KEYWORD_PHRASE && / HANDLER FOR$/.test(prev.text));
 
 // True when WITH at index i is followed by: [RECURSIVE] name [(columns)] AS
 function isCommonTableExpression(tokens: Token[], i: number): boolean {

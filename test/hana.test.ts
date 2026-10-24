@@ -633,6 +633,409 @@ describe('HanaFormatter', () => {
     });
   });
 
+  describe('unreserved clause words as identifiers', () => {
+    const words = [
+      'language',
+      'returns',
+      'open',
+      'load',
+      'do',
+      'break',
+      'continue',
+      'signal',
+      'resignal',
+      'fetch',
+      'close',
+      'call',
+      'annotate',
+      'backup',
+      'commit',
+      'savepoint',
+      'unload',
+      'export',
+      'import',
+    ];
+
+    words.forEach(word => {
+      it(`formats ${word} as a plain column name`, () => {
+        const sqls = [
+          'SELECT id, name FROM t WHERE name = 1 ORDER BY name;',
+          'INSERT INTO t (id, name) VALUES (1, 2);',
+          "UPDATE t SET name = 'x' WHERE id = 1;",
+          'CREATE COLUMN TABLE t (id INT, name NVARCHAR(10));',
+        ];
+        sqls.forEach(sql => {
+          const withWord = sql.replace(/name/g, word);
+          expect(format(withWord)).toBe(format(sql).replace(/name/g, word));
+        });
+      });
+    });
+
+    it('formats SELECT id, language FROM t like SELECT id, name FROM t', () => {
+      expect(format('SELECT id, language FROM t')).toBe(dedent`
+        SELECT
+          id,
+          language
+        FROM
+          t
+      `);
+    });
+
+    it('formats LANGUAGE and RETURNS as identifiers inside procedure headers and bodies', () => {
+      expect(
+        format(
+          'CREATE FUNCTION f (language NVARCHAR(2)) RETURNS TABLE (language NVARCHAR(2), open INT) LANGUAGE SQLSCRIPT SQL SECURITY INVOKER AS BEGIN RETURN SELECT language, open FROM t WHERE language = :language; END;'
+        )
+      ).toBe(dedent`
+        CREATE FUNCTION f (language NVARCHAR(2))
+        RETURNS TABLE (language NVARCHAR(2), open INT)
+        LANGUAGE SQLSCRIPT
+        SQL SECURITY INVOKER AS
+        BEGIN
+        RETURN
+        SELECT
+          language,
+          open
+        FROM
+          t
+        WHERE
+          language = :language;
+
+        END;
+      `);
+    });
+
+    it('keeps procedure header clauses in CREATE PROCEDURE with DEFAULT SCHEMA', () => {
+      expect(
+        format(
+          'CREATE OR REPLACE PROCEDURE p (IN load INT) LANGUAGE SQLSCRIPT SQL SECURITY DEFINER DEFAULT SCHEMA s READS SQL DATA AS BEGIN SELECT :load FROM DUMMY; END;'
+        )
+      ).toBe(dedent`
+        CREATE OR REPLACE PROCEDURE p (IN load INT)
+        LANGUAGE SQLSCRIPT
+        SQL SECURITY DEFINER
+        DEFAULT SCHEMA s
+        READS SQL DATA AS
+        BEGIN
+        SELECT
+          :load
+        FROM
+          DUMMY;
+
+        END;
+      `);
+    });
+
+    it('keeps SQLScript statements as clauses at the start of a statement', () => {
+      expect(
+        format(
+          'DO BEGIN DECLARE EXIT HANDLER FOR SQLEXCEPTION CALL log_err(); OPEN c; FETCH c INTO v; CLOSE c; LOOP CALL p(); BREAK; END LOOP; COMMIT; END;'
+        )
+      ).toBe(dedent`
+        DO
+        BEGIN
+        DECLARE EXIT HANDLER FOR SQLEXCEPTION
+        CALL log_err ();
+
+        OPEN c;
+
+        FETCH c
+        INTO
+          v;
+
+        CLOSE c;
+
+        LOOP
+        CALL p ();
+
+        BREAK;
+
+        END LOOP;
+
+        COMMIT;
+
+        END;
+      `);
+    });
+  });
+
+  describe('time travel queries', () => {
+    it('keeps AS OF COMMIT ID on the FROM line', () => {
+      expect(format('SELECT * FROM t AS OF COMMIT ID 5')).toBe(dedent`
+        SELECT
+          *
+        FROM
+          t AS OF COMMIT ID 5
+      `);
+    });
+
+    it('keeps AS OF COMMIT ID before WHERE', () => {
+      expect(format('SELECT a FROM t AS OF COMMIT ID 5 WHERE a > 1;')).toBe(dedent`
+        SELECT
+          a
+        FROM
+          t AS OF COMMIT ID 5
+        WHERE
+          a > 1;
+      `);
+    });
+
+    it('keeps AS OF UTCTIMESTAMP on the FROM line', () => {
+      expect(format("SELECT * FROM t AS OF UTCTIMESTAMP '2024-01-01 00:00:00' WHERE a = 1;"))
+        .toBe(dedent`
+        SELECT
+          *
+        FROM
+          t AS OF UTCTIMESTAMP '2024-01-01 00:00:00'
+        WHERE
+          a = 1;
+      `);
+    });
+
+    it('keeps AS OF COMMIT ID on the FROM line in tabular style', () => {
+      expect(format('SELECT * FROM t AS OF COMMIT ID 5', { indentStyle: 'tabularLeft' })).toBe(
+        dedent`
+          SELECT    *
+          FROM      t AS OF COMMIT ID 5
+        `
+      );
+    });
+  });
+
+  describe('unreserved clause words in CASE expressions', () => {
+    it('formats THEN open ELSE close as column names', () => {
+      expect(format('SELECT CASE WHEN a = 1 THEN open ELSE close END AS x FROM t')).toBe(dedent`
+        SELECT
+          CASE
+            WHEN a = 1 THEN open
+            ELSE close
+          END AS x
+        FROM
+          t
+      `);
+    });
+
+    it('formats THEN load as a column name', () => {
+      expect(format('SELECT CASE WHEN a = 1 THEN load ELSE 0 END AS x FROM t')).toBe(dedent`
+        SELECT
+          CASE
+            WHEN a = 1 THEN load
+            ELSE 0
+          END AS x
+        FROM
+          t
+      `);
+    });
+
+    it('formats a column after a CASE expression', () => {
+      expect(format('SELECT CASE WHEN a = 1 THEN 1 ELSE 0 END AS flag, open FROM t')).toBe(dedent`
+        SELECT
+          CASE
+            WHEN a = 1 THEN 1
+            ELSE 0
+          END AS flag,
+          open
+        FROM
+          t
+      `);
+    });
+
+    it('still starts a statement after THEN and ELSE of SQLScript IF', () => {
+      expect(
+        format(
+          'IF :a > 0 THEN x = CASE WHEN :a > 1 THEN 1 ELSE 0 END; CALL p(); ELSE CALL q(); END IF;'
+        )
+      ).toBe(dedent`
+        IF :a > 0 THEN x = CASE
+          WHEN :a > 1 THEN 1
+          ELSE 0
+        END;
+
+        CALL p ();
+
+        ELSE
+        CALL q ();
+
+        END IF;
+      `);
+    });
+  });
+
+  describe('case of unreserved clause words', () => {
+    it('applies identifierCase and not keywordCase to column names', () => {
+      const sql = 'select ID, Language, Returns, OPEN, Load, Commit, call, Fetch, do from T';
+      expect(format(sql, { keywordCase: 'upper', identifierCase: 'lower' })).toBe(dedent`
+        SELECT
+          id,
+          language,
+          returns,
+          open,
+          load,
+          commit,
+          call,
+          fetch,
+          do
+        FROM
+          t
+      `);
+      expect(format(sql, { keywordCase: 'lower', identifierCase: 'upper' })).toBe(dedent`
+        select
+          ID,
+          LANGUAGE,
+          RETURNS,
+          OPEN,
+          LOAD,
+          COMMIT,
+          CALL,
+          FETCH,
+          DO
+        from
+          T
+      `);
+    });
+
+    it('applies identifierCase to column names in CASE expressions', () => {
+      expect(
+        format('select case when a = 1 then Open else Close end as x from t', {
+          keywordCase: 'upper',
+          identifierCase: 'lower',
+        })
+      ).toBe(dedent`
+        SELECT
+          CASE
+            WHEN a = 1 THEN open
+            ELSE close
+          END AS x
+        FROM
+          t
+      `);
+    });
+
+    it('applies keywordCase to these words where they are syntax', () => {
+      expect(
+        format(
+          'while :i < 3 do i = :i + 1; end while; select * from t as of commit id 5; alter system savepoint; call p(); load t all;',
+          { keywordCase: 'upper', identifierCase: 'lower' }
+        )
+      ).toBe(dedent`
+        WHILE :i < 3 DO i = :i + 1;
+
+        END WHILE;
+
+        SELECT
+          *
+        FROM
+          t AS OF COMMIT id 5;
+
+        ALTER SYSTEM SAVEPOINT;
+
+        CALL p ();
+
+        LOAD t ALL;
+      `);
+    });
+
+    it('applies keywordCase to UNLOAD PRIORITY in table DDL', () => {
+      expect(
+        format(
+          'create column table t (a INT) unload priority 5; alter table t unload priority 5;',
+          {
+            keywordCase: 'upper',
+          }
+        )
+      ).toBe(dedent`
+        CREATE COLUMN TABLE t (a INT) UNLOAD PRIORITY 5;
+
+        ALTER TABLE t UNLOAD PRIORITY 5;
+      `);
+    });
+
+    it('applies keywordCase to LOAD UNIT in ALTER TABLE', () => {
+      expect(format('alter table t load unit page;', { keywordCase: 'upper' })).toBe(
+        'ALTER TABLE t LOAD unit page;'
+      );
+    });
+
+    it('formats OFFSET ... FETCH FIRST as clauses', () => {
+      expect(
+        format('select * from t order by a offset 5 rows fetch first 10 rows only;', {
+          keywordCase: 'upper',
+        })
+      ).toBe(dedent`
+        SELECT
+          *
+        FROM
+          t
+        ORDER BY
+          a
+        OFFSET
+          5 ROWS
+        FETCH FIRST
+          10 ROWS ONLY;
+      `);
+    });
+
+    it('applies identifierCase to column names before ORDER BY directions and predicates', () => {
+      expect(
+        format(
+          'select open o, load from t where open is not null and load in (1, 2) order by open desc, load;',
+          { keywordCase: 'upper', identifierCase: 'lower' }
+        )
+      ).toBe(dedent`
+        SELECT
+          open o,
+          load
+        FROM
+          t
+        WHERE
+          open IS NOT NULL
+          AND load IN (1, 2)
+        ORDER BY
+          open DESC,
+          load;
+      `);
+    });
+  });
+
+  describe('idempotency of unreserved clause words and time travel', () => {
+    const samples = [
+      'SELECT id, language, returns, open, load FROM t WHERE language = 1 ORDER BY load;',
+      'SELECT call, commit, fetch, close FROM t GROUP BY call;',
+      'CREATE COLUMN TABLE t (language NVARCHAR(2), open INT, load INT);',
+      "UPDATE t SET language = 'x', open = 1 WHERE load = 2;",
+      'CREATE FUNCTION f (language NVARCHAR(2)) RETURNS TABLE (open INT) LANGUAGE SQLSCRIPT AS BEGIN RETURN SELECT open FROM t WHERE language = :language; END;',
+      'DO BEGIN DECLARE EXIT HANDLER FOR SQLEXCEPTION CALL log_err(); OPEN c; FETCH c INTO v; CLOSE c; COMMIT; END;',
+      'SELECT * FROM t AS OF COMMIT ID 5 WHERE a = 1;',
+      "SELECT * FROM t AS OF UTCTIMESTAMP '2024-01-01 00:00:00';",
+      'SELECT CASE WHEN a = 1 THEN open ELSE close END AS x FROM t;',
+      'SELECT CASE WHEN a = 1 THEN load ELSE 0 END AS x FROM t;',
+      'SELECT CASE WHEN a = 1 THEN 1 ELSE 0 END AS flag, open FROM t;',
+      'IF :a > 0 THEN x = CASE WHEN :a > 1 THEN 1 ELSE 0 END; CALL p(); ELSE CALL q(); END IF;',
+      'select ID, Language, Returns, OPEN, Load, Commit, call, Fetch, do from T;',
+      'CREATE COLUMN TABLE t (a INT) UNLOAD PRIORITY 5; ALTER TABLE t UNLOAD PRIORITY 5;',
+      'ALTER TABLE t LOAD UNIT PAGE;',
+      'SELECT * FROM t ORDER BY a OFFSET 5 ROWS FETCH FIRST 10 ROWS ONLY;',
+      'SELECT open o, load FROM t WHERE open IS NOT NULL AND load IN (1, 2) ORDER BY open DESC, load;',
+    ];
+
+    const configs = [
+      {},
+      { keywordCase: 'upper', identifierCase: 'lower' } as const,
+      { keywordCase: 'lower', identifierCase: 'upper' } as const,
+      { indentStyle: 'tabularLeft' } as const,
+      { indentStyle: 'tabularRight', newlineBeforeSemicolon: true } as const,
+    ];
+
+    samples.forEach(sql => {
+      configs.forEach(cfg => {
+        it(`formats idempotently with ${JSON.stringify(cfg)}: ${sql}`, () => {
+          const once = format(sql, cfg);
+          expect(format(once, cfg)).toBe(once);
+        });
+      });
+    });
+  });
+
   describe('vocabulary', () => {
     it('recognizes HANA data types', () => {
       expect(
