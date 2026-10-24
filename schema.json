@@ -45,6 +45,7 @@
         "db2",
         "db2i",
         "duckdb",
+        "hana",
         "hive",
         "mariadb",
         "mysql",

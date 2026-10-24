@@ -392,7 +392,10 @@ other_keyword ->
   ( %WHEN
   | %THEN
   | %ELSE
-  | %END ) {%
+  | %END
+  | %BLOCK_START
+  | %BLOCK_MIDDLE
+  | %BLOCK_END ) {%
   ([[token]]) => toKeywordNode(token)
 %}
 

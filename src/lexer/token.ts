@@ -23,6 +23,12 @@ export enum TokenType {
   THEN = 'THEN',
   LIMIT = 'LIMIT',
   BETWEEN = 'BETWEEN',
+  // Keywords of procedural blocks (like SQLScript BEGIN ... END).
+  // These are never produced by the core tokenizer,
+  // only by dialects which detect such blocks in their postProcess().
+  BLOCK_START = 'BLOCK_START', // Starts a block, like BEGIN or the THEN of IF ... THEN
+  BLOCK_MIDDLE = 'BLOCK_MIDDLE', // Ends one block and starts another, like ELSE of IF
+  BLOCK_END = 'BLOCK_END', // Ends a block, like END or ELSEIF
   AND = 'AND',
   OR = 'OR',
   XOR = 'XOR',
@@ -105,6 +111,9 @@ export const isReserved = (type: TokenType): boolean =>
   type === TokenType.THEN ||
   type === TokenType.LIMIT ||
   type === TokenType.BETWEEN ||
+  type === TokenType.BLOCK_START ||
+  type === TokenType.BLOCK_MIDDLE ||
+  type === TokenType.BLOCK_END ||
   type === TokenType.AND ||
   type === TokenType.OR ||
   type === TokenType.XOR;

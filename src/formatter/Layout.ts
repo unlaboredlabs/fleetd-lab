@@ -123,6 +123,13 @@ export default class Layout {
   }
 
   /**
+   * True when something besides whitespace has already been added.
+   */
+  public hasContent(): boolean {
+    return this.items.some(item => typeof item === 'string');
+  }
+
+  /**
    * True when some content has already been added and nothing but indentation
    * has been emitted since the last newline, meaning the next token would be
    * placed at the start of a fresh (non-first) line.

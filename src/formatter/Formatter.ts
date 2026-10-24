@@ -38,26 +38,43 @@ export default class Formatter {
   }
 
   private formatAst(statements: StatementNode[]): string {
-    return statements
-      .map(stat => this.formatStatement(stat))
-      .join('\n'.repeat(this.cfg.linesBetweenQueries + 1));
+    // Procedural block level (BEGIN ... END nesting) carried from one statement to the next
+    let blockLevel = 0;
+    let result = '';
+    statements.forEach((stat, i) => {
+      if (i > 0) {
+        // Statements inside a procedural block are separated by a single newline
+        result += '\n'.repeat(blockLevel > 0 ? 1 : this.cfg.linesBetweenQueries + 1);
+      }
+      const formatted = this.formatStatement(stat, blockLevel);
+      result += formatted.text;
+      blockLevel = formatted.blockLevel;
+    });
+    return result;
   }
 
-  private formatStatement(statement: StatementNode): string {
-    const layout = new ExpressionFormatter({
+  private formatStatement(
+    statement: StatementNode,
+    initialBlockLevel: number
+  ): { text: string; blockLevel: number } {
+    const layout = new Layout(new Indentation(indentString(this.cfg), initialBlockLevel));
+    // Indent the first line of a statement inside a procedural block
+    layout.add(WS.INDENT);
+    new ExpressionFormatter({
       cfg: this.cfg,
       dialectCfg: this.dialect.formatOptions,
       params: this.params,
-      layout: new Layout(new Indentation(indentString(this.cfg))),
+      layout,
     }).format(statement.children);
 
+    const blockLevel = layout.indentation.getProcedureBlockLevel();
     if (!statement.hasSemicolon) {
       // do nothing
     } else if (this.cfg.newlineBeforeSemicolon) {
-      layout.add(WS.NEWLINE, ';');
+      layout.add(WS.NEWLINE, indentString(this.cfg).repeat(blockLevel) + ';');
     } else {
       layout.add(WS.NO_NEWLINE, ';');
     }
-    return layout.toString();
+    return { text: layout.toString(), blockLevel };
   }
 }
