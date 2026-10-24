@@ -282,6 +282,14 @@ impl Query {
             .unwrap_or(true)
     }
 
+    /// Whether the cursor is within or at the end of a comment.
+    #[must_use]
+    pub fn in_comment(&self) -> bool {
+        self.before
+            .as_ref()
+            .is_some_and(|before| before.syntax.kind() == COMMENT)
+    }
+
     #[must_use]
     pub fn in_entry_keys(&self) -> bool {
         self.entry_key()

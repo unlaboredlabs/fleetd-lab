@@ -77,14 +77,17 @@ impl Node {
                     let entries = table.entries().read();
 
                     // We make two runs to put tables and array of tables last.
-                    // No tables:
-                    for (key, node) in entries.iter().filter(|(_, n)| {
-                        !n.is_table()
-                            && !n
-                                .as_array()
+                    // Inline tables are written as values.
+                    let is_table = |n: &Node| {
+                        n.as_table()
+                            .is_some_and(|t| t.inner.kind != TableKind::Inline)
+                            || n.as_array()
                                 .map(|n| n.inner.kind == ArrayKind::Tables)
                                 .unwrap_or(false)
-                    }) {
+                    };
+
+                    // No tables:
+                    for (key, node) in entries.iter().filter(|(_, n)| !is_table(n)) {
                         node.to_toml_impl(
                             f,
                             key.clone().into(),
@@ -96,12 +99,7 @@ impl Node {
                     }
 
                     // Tables only:
-                    for (key, node) in entries.iter().filter(|(_, n)| {
-                        n.is_table()
-                            || n.as_array()
-                                .map(|n| n.inner.kind == ArrayKind::Tables)
-                                .unwrap_or(false)
-                    }) {
+                    for (key, node) in entries.iter().filter(|(_, n)| is_table(n)) {
                         node.to_toml_impl(
                             f,
                             parent_keys.join(key.clone()),

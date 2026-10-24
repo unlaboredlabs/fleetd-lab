@@ -318,3 +318,35 @@ tbl = { # start
         ]
     );
 }
+
+#[test]
+fn to_toml_inline_tables() {
+    let src = r#"
+a.b = 1
+point = {
+    x = 1, # the x coordinate
+    y = { z = 07:32 },
+}
+
+[tbl]
+inline = { a = 1, b = "\e[0m", }
+c = 2
+"#;
+    let toml = parse_valid(src).to_toml(false, false);
+
+    // Inline tables are entries of their table, not headers.
+    assert_eq!(
+        toml,
+        r#"point = { x = 1, y = { z = 07:32 } }
+[a]
+b = 1
+[tbl]
+inline = { a = 1, b = "\e[0m" }
+c = 2
+"#
+    );
+    assert_eq!(
+        serde_json::to_value(parse_valid(&toml)).unwrap(),
+        serde_json::to_value(parse_valid(src)).unwrap()
+    );
+}
