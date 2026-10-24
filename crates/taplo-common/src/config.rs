@@ -106,24 +106,48 @@ impl Config {
 
         let value = serde_json::to_value(&dom)?;
 
-        serde_path_to_error::deserialize(value).map_err(|error| {
-            let keys = Keys::new(error.path().iter().filter_map(|segment| match segment {
-                serde_path_to_error::Segment::Map { key } => Some(KeyOrIndex::Key(Key::new(key))),
-                serde_path_to_error::Segment::Seq { index } => Some(KeyOrIndex::Index(*index)),
-                _ => None,
-            }));
+        serde_path_to_error::deserialize(&value).map_err(|error| {
+            let message = error.inner().to_string();
 
-            if keys.is_empty() {
-                return anyhow!("{}", error.inner());
+            let path = error_path(
+                &value,
+                error
+                    .path()
+                    .iter()
+                    .filter_map(|segment| match segment {
+                        serde_path_to_error::Segment::Map { key } => {
+                            Some(KeyOrIndex::Key(Key::new(key)))
+                        }
+                        serde_path_to_error::Segment::Seq { index } => {
+                            Some(KeyOrIndex::Index(*index))
+                        }
+                        _ => None,
+                    })
+                    .collect(),
+                &message,
+            );
+
+            if path.is_empty() {
+                return anyhow!("{message}");
             }
 
             let location = dom
-                .path(&keys)
+                .path(&Keys::new(path.iter().cloned()))
                 .and_then(|node| node.text_ranges(false).next())
                 .map(|range| format!(" at {}", line_column(src, range.start())))
                 .unwrap_or_default();
 
-            anyhow!("{} for key `{}`{location}", error.inner(), error.path())
+            let path = path
+                .iter()
+                .enumerate()
+                .map(|(i, segment)| match segment {
+                    KeyOrIndex::Key(key) if i == 0 => key.value().to_string(),
+                    KeyOrIndex::Key(key) => format!(".{}", key.value()),
+                    KeyOrIndex::Index(index) => format!("[{index}]"),
+                })
+                .collect::<String>();
+
+            anyhow!("{message} for key `{path}`{location}")
         })
     }
 
@@ -438,6 +462,93 @@ pub struct Plugin {
     pub settings: Option<Value>,
 }
 
+/// The path of the value that fails to deserialize into a [`Config`] with `message`.
+///
+/// `path` is the path reported by serde, which stops at `#[serde(flatten)]` fields
+/// (their content is buffered and deserialized later without tracking).
+/// Below it, serde reports the first failing entry of a table or array in order,
+/// so the failing entry is found by deserializing copies of `value` that keep
+/// only the first entries of the table or array, until the error reappears.
+fn error_path(value: &Value, mut path: Vec<KeyOrIndex>, message: &str) -> Vec<KeyOrIndex> {
+    let fails = |value: &Value| match serde_path_to_error::deserialize::<_, Config>(value) {
+        Ok(_) => false,
+        Err(error) => error.inner().to_string() == message,
+    };
+
+    let truncated = |path: &[KeyOrIndex], len: usize| {
+        let mut value = value.clone();
+
+        match value_at_mut(&mut value, path) {
+            Some(Value::Object(entries)) => {
+                *entries = std::mem::take(entries).into_iter().take(len).collect();
+            }
+            Some(Value::Array(items)) => items.truncate(len),
+            _ => {}
+        }
+
+        value
+    };
+
+    loop {
+        let Some(node) = value_at(value, &path) else {
+            break;
+        };
+
+        let len = match node {
+            Value::Object(entries) => entries.len(),
+            Value::Array(items) => items.len(),
+            _ => break,
+        };
+
+        // The error is not caused by any entry, e.g. a missing field.
+        if fails(&truncated(&path, 0)) {
+            break;
+        }
+
+        let Some(len) = (1..=len).find(|&len| fails(&truncated(&path, len))) else {
+            break;
+        };
+
+        let segment = match node {
+            Value::Object(entries) => {
+                let key = entries.keys().nth(len - 1).unwrap();
+
+                // Like serde, report unknown fields at the table that contains them.
+                if message.starts_with(&format!("unknown field `{key}`")) {
+                    break;
+                }
+
+                KeyOrIndex::Key(Key::new(key))
+            }
+            _ => KeyOrIndex::Index(len - 1),
+        };
+
+        path.push(segment);
+    }
+
+    path
+}
+
+fn value_at<'v>(mut value: &'v Value, path: &[KeyOrIndex]) -> Option<&'v Value> {
+    for segment in path {
+        value = match segment {
+            KeyOrIndex::Key(key) => value.as_object()?.get(key.value())?,
+            KeyOrIndex::Index(index) => value.as_array()?.get(*index)?,
+        };
+    }
+    Some(value)
+}
+
+fn value_at_mut<'v>(mut value: &'v mut Value, path: &[KeyOrIndex]) -> Option<&'v mut Value> {
+    for segment in path {
+        value = match segment {
+            KeyOrIndex::Key(key) => value.as_object_mut()?.get_mut(key.value())?,
+            KeyOrIndex::Index(index) => value.as_array_mut()?.get_mut(*index)?,
+        };
+    }
+    Some(value)
+}
+
 /// Human-friendly 1-based line and column of an offset.
 fn line_column(src: &str, offset: TextSize) -> String {
     let before = &src[..usize::from(offset).min(src.len())];
@@ -539,5 +650,79 @@ reorder_keys = true
             error("[[rule]]\ninclude = 1"),
             "invalid type: integer `1`, expected a sequence for key `rule[0].include` at line 2 column 11"
         );
+    }
+
+    #[test]
+    fn config_from_toml_error_locations() {
+        let error = |src: &str| Config::from_toml(src).unwrap_err().to_string();
+
+        let cases = [
+            // Flattened global options.
+            (
+                "[formatting]\ncolumn_width = \"x\"",
+                "invalid type: string \"x\", expected usize",
+                "formatting.column_width",
+                "line 2 column 16",
+            ),
+            (
+                "include = [\"**/*.toml\"]\nformatting = { align_entries = true, indent_string = 2 }",
+                "invalid type: integer `2`",
+                "formatting.indent_string",
+                "line 2 column 54",
+            ),
+            (
+                "formatting.reorder_keys = \"yes\"",
+                "invalid type: string \"yes\", expected a boolean",
+                "formatting.reorder_keys",
+                "line 1 column 27",
+            ),
+            (
+                "[schema]\nenabled = true\nurl = 3",
+                "invalid type: integer `3`",
+                "schema.url",
+                "line 3 column 7",
+            ),
+            (
+                "[formatting]\ncolumn_width = 80\n[schema]\nfoo = 1",
+                "unknown field `foo`",
+                "schema",
+                "line 3 column 1",
+            ),
+            // Flattened rule options.
+            (
+                "[[rule]]\ninclude = [\"a.toml\"]\n\n[rule.formatting]\nalign_entries = 3",
+                "invalid type: integer `3`, expected a boolean",
+                "rule[0].formatting.align_entries",
+                "line 5 column 17",
+            ),
+            (
+                "[[rule]]\n[[rule]]\nkeys = [\"a\"]\nschema = { path = \"a.json\", enabled = \"no\" }",
+                "invalid type: string \"no\", expected a boolean",
+                "rule[1].schema.enabled",
+                "line 4 column 39",
+            ),
+            // Not flattened.
+            (
+                "[[rule]]\nkeys = [\"a\", 1]",
+                "invalid type: integer `1`, expected a string",
+                "rule[0].keys[1]",
+                "line 2 column 14",
+            ),
+            (
+                "[plugins.a]\nsettings = {}\n\n[plugins]\nb = 1",
+                "invalid type: integer `1`, expected struct Plugin",
+                "plugins.b",
+                "line 5 column 5",
+            ),
+        ];
+
+        for (src, message, path, location) in cases {
+            let error = error(src);
+            assert!(error.starts_with(message), "{src:?}: {error}");
+            assert!(
+                error.ends_with(&format!(" for key `{path}` at {location}")),
+                "{src:?}: {error}"
+            );
+        }
     }
 }
