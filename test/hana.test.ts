@@ -934,6 +934,67 @@ describe('HanaFormatter', () => {
         LOAD t ALL;
       `);
     });
+
+    it('applies keywordCase to UNLOAD PRIORITY in table DDL', () => {
+      expect(
+        format(
+          'create column table t (a INT) unload priority 5; alter table t unload priority 5;',
+          {
+            keywordCase: 'upper',
+          }
+        )
+      ).toBe(dedent`
+        CREATE COLUMN TABLE t (a INT) UNLOAD PRIORITY 5;
+
+        ALTER TABLE t UNLOAD PRIORITY 5;
+      `);
+    });
+
+    it('applies keywordCase to LOAD UNIT in ALTER TABLE', () => {
+      expect(format('alter table t load unit page;', { keywordCase: 'upper' })).toBe(
+        'ALTER TABLE t LOAD unit page;'
+      );
+    });
+
+    it('formats OFFSET ... FETCH FIRST as clauses', () => {
+      expect(
+        format('select * from t order by a offset 5 rows fetch first 10 rows only;', {
+          keywordCase: 'upper',
+        })
+      ).toBe(dedent`
+        SELECT
+          *
+        FROM
+          t
+        ORDER BY
+          a
+        OFFSET
+          5 ROWS
+        FETCH FIRST
+          10 ROWS ONLY;
+      `);
+    });
+
+    it('applies identifierCase to column names before ORDER BY directions and predicates', () => {
+      expect(
+        format(
+          'select open o, load from t where open is not null and load in (1, 2) order by open desc, load;',
+          { keywordCase: 'upper', identifierCase: 'lower' }
+        )
+      ).toBe(dedent`
+        SELECT
+          open o,
+          load
+        FROM
+          t
+        WHERE
+          open IS NOT NULL
+          AND load IN (1, 2)
+        ORDER BY
+          open DESC,
+          load;
+      `);
+    });
   });
 
   describe('idempotency of unreserved clause words and time travel', () => {
@@ -951,6 +1012,10 @@ describe('HanaFormatter', () => {
       'SELECT CASE WHEN a = 1 THEN 1 ELSE 0 END AS flag, open FROM t;',
       'IF :a > 0 THEN x = CASE WHEN :a > 1 THEN 1 ELSE 0 END; CALL p(); ELSE CALL q(); END IF;',
       'select ID, Language, Returns, OPEN, Load, Commit, call, Fetch, do from T;',
+      'CREATE COLUMN TABLE t (a INT) UNLOAD PRIORITY 5; ALTER TABLE t UNLOAD PRIORITY 5;',
+      'ALTER TABLE t LOAD UNIT PAGE;',
+      'SELECT * FROM t ORDER BY a OFFSET 5 ROWS FETCH FIRST 10 ROWS ONLY;',
+      'SELECT open o, load FROM t WHERE open IS NOT NULL AND load IN (1, 2) ORDER BY open DESC, load;',
     ];
 
     const configs = [

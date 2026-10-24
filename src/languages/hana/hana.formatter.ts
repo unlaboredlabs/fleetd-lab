@@ -19,6 +19,7 @@ const reservedClauses = expandPhrases([
   'ORDER BY',
   'LIMIT',
   'OFFSET',
+  'FETCH {FIRST | NEXT}',
   'FOR UPDATE [OF]',
   'FOR SHARE LOCK',
   'INTO',
@@ -402,7 +403,8 @@ function disambiguateClauses(tokens: Token[]): Token[] {
     }
     // column names followed by a clause, e.g. SELECT import FROM t
     if (/^(IMPORT|EXPORT) (FROM|INTO)$/.test(token.text) && statement !== token) {
-      return splitClause(token).map(t => toKeywordOrIdentifier(t, prev, statement));
+      const [word, clause] = splitClause(token);
+      return [toKeywordOrIdentifier(word, prev, clause, statement), clause];
     }
     if (
       // column names like language, open or load, and loops like WHILE ... DO and FOR ... DO
@@ -410,7 +412,7 @@ function disambiguateClauses(tokens: Token[]): Token[] {
       (routineHeaderClauses.includes(token.text) &&
         !(isRoutineStatement(statement) && depth === statementDepth))
     ) {
-      return toKeywordOrIdentifier(token, prev, statement);
+      return toKeywordOrIdentifier(token, prev, next, statement);
     }
     return token;
   });
@@ -418,9 +420,14 @@ function disambiguateClauses(tokens: Token[]): Token[] {
 
 const toKeyword = (token: Token): Token => ({ ...token, type: TokenType.RESERVED_KEYWORD });
 
-// Converts a clause token that doesn't start a clause into a keyword where it is part of
-// the syntax, and into an identifier (e.g. a column name) otherwise
-const toKeywordOrIdentifier = (token: Token, prev: Token, statement: Token | undefined): Token => {
+// Converts a clause token that doesn't start a clause into an identifier where it is
+// a column name (or other expression), and into a keyword where it is part of the syntax
+const toKeywordOrIdentifier = (
+  token: Token,
+  prev: Token,
+  next: Token,
+  statement: Token | undefined
+): Token => {
   if (reservedClauses.includes(token.text)) {
     return token;
   }
@@ -430,15 +437,64 @@ const toKeywordOrIdentifier = (token: Token, prev: Token, statement: Token | und
     token.text.includes(' ') ||
     // loops like WHILE ... DO and FOR ... DO
     (token.text === 'DO' && /^(WHILE|FOR)$/.test(statement?.text ?? '')) ||
-    // time travel, e.g. AS OF COMMIT ID 5
-    (token.text === 'COMMIT' && prev.text === 'OF') ||
     // e.g. ALTER SYSTEM SAVEPOINT
     (prev.type === TokenType.RESERVED_CLAUSE && prev.text === 'ALTER SYSTEM')
   ) {
     return toKeyword(token);
   }
-  return { ...token, type: TokenType.IDENTIFIER, text: token.raw };
+  if (isBeforeExpression(prev) || isAfterExpression(next)) {
+    return { ...token, type: TokenType.IDENTIFIER, text: token.raw };
+  }
+  // e.g. UNLOAD PRIORITY 5, AS OF COMMIT ID 5
+  return toKeyword(token);
 };
+
+// True when the token can be followed by a column name or other expression
+const isBeforeExpression = (prev: Token): boolean =>
+  [
+    TokenType.RESERVED_SELECT,
+    TokenType.COMMA,
+    TokenType.OPEN_PAREN,
+    TokenType.PROPERTY_ACCESS_OPERATOR,
+    TokenType.OPERATOR,
+    TokenType.ASTERISK,
+    TokenType.CASE,
+    TokenType.WHEN,
+    TokenType.THEN,
+    TokenType.ELSE,
+    TokenType.AND,
+    TokenType.OR,
+    TokenType.XOR,
+    TokenType.BETWEEN,
+  ].includes(prev.type);
+
+// True when the token can follow a column name or other expression
+const isAfterExpression = (next: Token): boolean =>
+  [
+    TokenType.COMMA,
+    TokenType.CLOSE_PAREN,
+    TokenType.DELIMITER,
+    TokenType.EOF,
+    TokenType.PROPERTY_ACCESS_OPERATOR,
+    TokenType.OPERATOR,
+    TokenType.ASTERISK,
+    TokenType.RESERVED_CLAUSE,
+    TokenType.RESERVED_SELECT,
+    TokenType.RESERVED_SET_OPERATION,
+    TokenType.RESERVED_JOIN,
+    TokenType.RESERVED_DATA_TYPE,
+    TokenType.END,
+    TokenType.WHEN,
+    TokenType.THEN,
+    TokenType.ELSE,
+    TokenType.AND,
+    TokenType.OR,
+    TokenType.XOR,
+    TokenType.BETWEEN,
+    TokenType.LIMIT,
+  ].includes(next.type) ||
+  (next.type === TokenType.RESERVED_KEYWORD &&
+    ['AS', 'IS', 'IN', 'NOT', 'LIKE', 'ASC', 'DESC', 'NULLS'].includes(next.text));
 
 // Splits a two-word clause token like IMPORT FROM into two clause tokens
 function splitClause(token: Token): Token[] {
